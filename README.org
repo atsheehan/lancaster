@@ -8,32 +8,37 @@ The requirements were gathered from the [[https://avro.apache.org/docs/1.10.1/sp
 
 The initial focus will be reading an Avro container file using the writer's schema. We'll need to parse the schema and support deserialization of most types.
 
-- [-] Parse JSON schema
-  - [X] Primitive types
-  - [X] Maps/arrays
-  - [ ] Fixed/enums/records
-  - [ ] Unions
-  - [ ] Self-referential types
-  - [ ] Namespaces
-- [ ] Deserialize types
-  - [ ] null
-  - [ ] boolean
-  - [ ] int
-  - [ ] long
-  - [ ] float
-  - [ ] double
-  - [ ] bytes
-  - [ ] string
-  - [ ] arrays
-  - [ ] maps
-  - [ ] fixed
-  - [ ] enum
-  - [ ] record
-  - [ ] union
-- [ ] Reading an Avro container file
-  - [ ] Reading header and metadata
-  - [ ] Reading data blocks
-  - [ ] Deflate codec
+*** Parsing schema
+
+- [X] Primitive types
+- [X] Maps/arrays
+- [ ] Fixed/enums/records
+- [ ] Unions
+- [ ] Self-referential types
+- [ ] Namespaces
+
+*** Deserializing types
+
+- [ ] null
+- [ ] boolean
+- [ ] int
+- [ ] long
+- [ ] float
+- [ ] double
+- [ ] bytes
+- [ ] string
+- [ ] arrays
+- [ ] maps
+- [ ] fixed
+- [ ] enum
+- [ ] record
+- [ ] union
+
+*** Reading an Avro container file
+
+- [ ] Reading header and metadata
+- [ ] Reading data blocks
+- [ ] Deflate codec
 
 * Development
 
