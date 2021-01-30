@@ -10,7 +10,7 @@ The initial focus will be reading an Avro container file using the writer's sche
 
 - [-] Parse JSON schema
   - [X] Primitive types
-  - [ ] Maps/arrays
+  - [X] Maps/arrays
   - [ ] Fixed/enums/records
   - [ ] Unions
   - [ ] Self-referential types
