@@ -1,0 +1,36 @@
+* Lancaster
+
+This is a Rust library for reading Avro files. It is currently in development.
+
+** Functionality
+
+The requirements were gathered from the [[https://avro.apache.org/docs/1.10.1/spec.html][1.10.1 specification]].
+
+The initial focus will be reading an Avro container file using the writer's schema. We'll need to parse the schema and support deserialization of most types.
+
+- [ ] Parse JSON schema
+  - [ ] Primitive types
+  - [ ] Maps/arrays
+  - [ ] Fixed/enums/records
+  - [ ] Unions
+  - [ ] Self-referential types
+  - [ ] Namespaces
+- [ ] Deserialize types
+  - [ ] null
+  - [ ] boolean
+  - [ ] int
+  - [ ] long
+  - [ ] float
+  - [ ] double
+  - [ ] bytes
+  - [ ] string
+  - [ ] arrays
+  - [ ] maps
+  - [ ] fixed
+  - [ ] enum
+  - [ ] record
+  - [ ] union
+- [ ] Reading an Avro container file
+  - [ ] Reading header and metadata
+  - [ ] Reading data blocks
+  - [ ] Deflate codec
