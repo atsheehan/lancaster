@@ -34,3 +34,12 @@ The initial focus will be reading an Avro container file using the writer's sche
   - [ ] Reading header and metadata
   - [ ] Reading data blocks
   - [ ] Deflate codec
+
+* Development
+
+[[https://pre-commit.com/#1-install-pre-commit][Install pre-commit]] and run =pre-commit install= to [[https://pre-commit.com/#3-install-the-git-hook-scripts][configure the Git hooks]]. The commit hooks depend on [[https://github.com/rust-lang/rustfmt][rustfmt]] and [[https://github.com/rust-lang/rust-clippy][rust-clippy]] which can be installed with the following commands.
+
+#+BEGIN_SRC shell
+  rustup component add rustfmt
+  rustup component add clippy
+#+END_SRC
