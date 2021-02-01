@@ -139,17 +139,13 @@ impl SchemaType {
         }?;
 
         let symbols = match attributes.get("symbols") {
-            Some(Value::Array(symbols)) => {
-                let symbols = symbols
-                    .iter()
-                    .map(|v| match v {
-                        Value::String(s) => Ok(s.clone()),
-                        _ => Err(Error::InvalidType),
-                    })
-                    .collect::<Result<Vec<String>, Error>>()?;
-
-                Ok(symbols)
-            }
+            Some(Value::Array(symbols)) => symbols
+                .iter()
+                .map(|v| match v {
+                    Value::String(s) => Ok(s.clone()),
+                    _ => Err(Error::InvalidType),
+                })
+                .collect::<Result<Vec<String>, Error>>(),
             _ => Err(Error::InvalidType),
         }?;
 
@@ -167,18 +163,13 @@ impl SchemaType {
         }?;
 
         let fields = match attributes.get("fields") {
-            Some(Value::Array(fields)) => {
-                let fields = fields
-                    .iter()
-                    .map(|field| match field {
-                        Value::Object(field_attrs) => Self::parse_field(field_attrs, named_types),
-                        _ => Err(Error::InvalidType),
-                    })
-                    .collect::<Result<Vec<Field>, Error>>()?;
-
-                // If this redundant?
-                Ok(fields)
-            }
+            Some(Value::Array(fields)) => fields
+                .iter()
+                .map(|field| match field {
+                    Value::Object(field_attrs) => Self::parse_field(field_attrs, named_types),
+                    _ => Err(Error::InvalidType),
+                })
+                .collect::<Result<Vec<Field>, Error>>(),
             _ => Err(Error::InvalidType),
         }?;
 
