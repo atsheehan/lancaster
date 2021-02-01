@@ -54,18 +54,35 @@ impl NameRegistry {
         }
     }
 
+    fn lookup_name(&self, name: &str) -> Option<&NamedTypeId> {
+        self.name_to_id_mappings.get(name)
+    }
+
     fn add_type(&mut self, name: &str, definition: NamedType) -> NamedTypeId {
         let id = self.type_definitions.len();
         self.type_definitions.push(Some(definition));
         self.name_to_id_mappings.insert(name.to_string(), id);
         id
     }
+
+    fn reserve_name(&mut self, name: &str) -> NamedTypeId {
+        // TODO: validate name doesn't already exist
+        let id = self.type_definitions.len();
+        self.type_definitions.push(None);
+        self.name_to_id_mappings.insert(name.to_string(), id);
+        id
+    }
+
+    fn complete_reservation(&mut self, id: NamedTypeId, definition: NamedType) {
+        // TODO: validate that it's replacing an empty definition
+        self.type_definitions[id] = Some(definition);
+    }
 }
 
 impl SchemaType {
     fn parse(json: &Value, named_types: &mut NameRegistry) -> Result<Self, Error> {
         match json {
-            Value::String(typename) => Self::match_primitive_typename(typename),
+            Value::String(typename) => Self::match_typename(typename, named_types),
             Value::Object(attributes) => match attributes.get("type") {
                 Some(Value::String(typename)) => match typename.as_ref() {
                     "array" => Self::parse_array(attributes, named_types),
@@ -73,7 +90,7 @@ impl SchemaType {
                     "fixed" => Self::parse_fixed(attributes, named_types),
                     "enum" => Self::parse_enum(attributes, named_types),
                     "record" => Self::parse_record(attributes, named_types),
-                    _ => Self::match_primitive_typename(typename),
+                    _ => Self::match_typename(typename, named_types),
                 },
                 _ => Err(Error::InvalidSchema),
             },
@@ -162,6 +179,8 @@ impl SchemaType {
             _ => Err(Error::InvalidType),
         }?;
 
+        let id = named_types.reserve_name(name);
+
         let fields = match attributes.get("fields") {
             Some(Value::Array(fields)) => fields
                 .iter()
@@ -173,7 +192,7 @@ impl SchemaType {
             _ => Err(Error::InvalidType),
         }?;
 
-        let id = named_types.add_type(name, NamedType::Record(fields));
+        named_types.complete_reservation(id, NamedType::Record(fields));
         Ok(SchemaType::Reference(id))
     }
 
@@ -203,7 +222,7 @@ impl SchemaType {
         Ok(SchemaType::Union(union_types))
     }
 
-    fn match_primitive_typename(typename: &str) -> Result<Self, Error> {
+    fn match_typename(typename: &str, named_types: &NameRegistry) -> Result<Self, Error> {
         match typename {
             "null" => Ok(SchemaType::Null),
             "boolean" => Ok(SchemaType::Boolean),
@@ -213,7 +232,10 @@ impl SchemaType {
             "double" => Ok(SchemaType::Double),
             "bytes" => Ok(SchemaType::Bytes),
             "string" => Ok(SchemaType::String),
-            _ => Err(Error::UnrecognizedType),
+            typename => match named_types.lookup_name(typename) {
+                Some(id) => Ok(SchemaType::Reference(*id)),
+                None => Err(Error::UnrecognizedType),
+            },
         }
     }
 }
@@ -456,5 +478,43 @@ mod tests {
             SchemaType::Long,
         ]));
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn parse_self_referential_record() {
+        let json_str = r#"{
+          "type": "record",
+          "name": "long_list",
+          "fields": [
+            {"name": "value", "type": "long"},
+            {"name": "next", "type": ["null", "long_list"]}
+          ]
+        }"#;
+
+        let json: Value = serde_json::from_str(json_str).unwrap();
+        let mut named_types = NameRegistry::new();
+
+        let type_id = match SchemaType::parse(&json, &mut named_types) {
+            Ok(SchemaType::Reference(type_id)) => type_id,
+            _ => panic!("parse should have returned a reference"),
+        };
+
+        let expected_type_def = NamedType::Record(vec![
+            Field {
+                name: "value".to_string(),
+                schema_type: SchemaType::Long,
+            },
+            Field {
+                name: "next".to_string(),
+                schema_type: SchemaType::Union(vec![
+                    SchemaType::Null,
+                    SchemaType::Reference(type_id),
+                ]),
+            },
+        ]);
+
+        let actual_type_def = named_types.get(type_id).unwrap();
+
+        assert_eq!(*actual_type_def, expected_type_def);
     }
 }
