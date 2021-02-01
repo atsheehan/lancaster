@@ -381,4 +381,62 @@ mod tests {
             panic!("parse should have returned a reference");
         }
     }
+
+    #[test]
+    fn parse_nested_record() {
+        let json_str = r#"{
+          "type": "record",
+          "name": "user",
+          "fields": [
+            {
+              "name": "name",
+              "type": {
+                "type": "record",
+                "name": "fullname",
+                "fields": [
+                  {"name": "firstname", "type": "string"},
+                  {"name": "lastname", "type": "string"}
+                ]
+              }
+            }
+          ]
+        }"#;
+
+        let json: Value = serde_json::from_str(json_str).unwrap();
+        let mut named_types = NameRegistry::new();
+
+        let parsed_schema = SchemaType::parse(&json, &mut named_types);
+
+        let user_type_def = match parsed_schema {
+            Ok(SchemaType::Reference(user_type_id)) => named_types.get(user_type_id).unwrap(),
+            _ => panic!("parse should have returned a reference"),
+        };
+
+        let name_field_schema_type = match user_type_def {
+            NamedType::Record(fields) => {
+                assert_eq!(fields.len(), 1);
+                assert_eq!(&fields[0].name, "name");
+                &fields[0].schema_type
+            }
+            _ => panic!("user type should be a record"),
+        };
+
+        let actual_fullname_type_def = match name_field_schema_type {
+            SchemaType::Reference(fullname_type_id) => named_types.get(*fullname_type_id).unwrap(),
+            _ => panic!("name field should have been a reference"),
+        };
+
+        let expected_fullname_type_def = NamedType::Record(vec![
+            Field {
+                name: "firstname".to_string(),
+                schema_type: SchemaType::String,
+            },
+            Field {
+                name: "lastname".to_string(),
+                schema_type: SchemaType::String,
+            },
+        ]);
+
+        assert_eq!(*actual_fullname_type_def, expected_fullname_type_def);
+    }
 }
