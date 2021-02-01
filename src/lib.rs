@@ -17,6 +17,7 @@ enum SchemaType {
     String,
     Array(Box<SchemaType>),
     Map(Box<SchemaType>),
+    Union(Vec<SchemaType>),
     Reference(NamedTypeId),
 }
 
@@ -76,6 +77,7 @@ impl SchemaType {
                 },
                 _ => Err(Error::InvalidSchema),
             },
+            Value::Array(types) => Self::parse_union(types, named_types),
             _ => Err(Error::InvalidSchema),
         }
     }
@@ -199,6 +201,15 @@ impl SchemaType {
         }?;
 
         Ok(Field { name, schema_type })
+    }
+
+    fn parse_union(types: &[Value], named_types: &mut NameRegistry) -> Result<Self, Error> {
+        let union_types = types
+            .iter()
+            .map(|schema| Self::parse(schema, named_types))
+            .collect::<Result<Vec<SchemaType>, Error>>()?;
+
+        Ok(SchemaType::Union(union_types))
     }
 
     fn match_primitive_typename(typename: &str) -> Result<Self, Error> {
@@ -438,5 +449,21 @@ mod tests {
         ]);
 
         assert_eq!(*actual_fullname_type_def, expected_fullname_type_def);
+    }
+
+    #[test]
+    fn parse_union() {
+        let json_str = r#"["null","string","long"]"#;
+        let json: Value = serde_json::from_str(json_str).unwrap();
+
+        let mut named_types = NameRegistry::new();
+        let actual = SchemaType::parse(&json, &mut named_types);
+
+        let expected = Ok(SchemaType::Union(vec![
+            SchemaType::Null,
+            SchemaType::String,
+            SchemaType::Long,
+        ]));
+        assert_eq!(actual, expected);
     }
 }
