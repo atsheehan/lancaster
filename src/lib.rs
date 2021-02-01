@@ -36,7 +36,39 @@ enum NamedType {
 
 struct NameRegistry {
     type_definitions: Vec<Option<NamedType>>,
-    name_to_id_mappings: HashMap<String, NamedTypeId>,
+    name_to_id_mappings: HashMap<Fullname, NamedTypeId>,
+}
+
+#[derive(Hash, Eq, PartialEq)]
+struct Fullname {
+    fullname: String,
+}
+
+impl Fullname {
+    fn from_name(name: &str) -> Self {
+        Self::build(name, None)
+    }
+
+    fn build(name: &str, namespace: Option<&str>) -> Self {
+        let fullname = match name.rfind('.') {
+            Some(_) => name.to_string(),
+            None => match namespace {
+                Some(namespace) => {
+                    let mut fullname = namespace.to_string();
+                    fullname.push('.');
+                    fullname.push_str(name);
+                    fullname
+                }
+                None => name.to_string(),
+            },
+        };
+
+        Self { fullname }
+    }
+
+    fn fullname(&self) -> &str {
+        self.fullname.as_str()
+    }
 }
 
 impl NameRegistry {
@@ -54,22 +86,22 @@ impl NameRegistry {
         }
     }
 
-    fn lookup_name(&self, name: &str) -> Option<&NamedTypeId> {
+    fn lookup_name(&self, name: &Fullname) -> Option<&NamedTypeId> {
         self.name_to_id_mappings.get(name)
     }
 
-    fn add_type(&mut self, name: &str, definition: NamedType) -> NamedTypeId {
+    fn add_type(&mut self, name: Fullname, definition: NamedType) -> NamedTypeId {
         let id = self.type_definitions.len();
         self.type_definitions.push(Some(definition));
-        self.name_to_id_mappings.insert(name.to_string(), id);
+        self.name_to_id_mappings.insert(name, id);
         id
     }
 
-    fn reserve_name(&mut self, name: &str) -> NamedTypeId {
+    fn reserve_name(&mut self, name: Fullname) -> NamedTypeId {
         // TODO: validate name doesn't already exist
         let id = self.type_definitions.len();
         self.type_definitions.push(None);
-        self.name_to_id_mappings.insert(name.to_string(), id);
+        self.name_to_id_mappings.insert(name, id);
         id
     }
 
@@ -134,6 +166,13 @@ impl SchemaType {
             _ => Err(Error::InvalidType),
         }?;
 
+        let namespace = match attributes.get("namespace") {
+            Some(Value::String(namespace)) => Some(namespace.as_ref()),
+            _ => None,
+        };
+
+        let fullname = Fullname::build(name, namespace);
+
         let size = match attributes.get("size") {
             Some(Value::Number(size)) => {
                 let size = size.as_u64().ok_or(Error::InvalidType)?;
@@ -142,7 +181,7 @@ impl SchemaType {
             _ => Err(Error::InvalidType),
         }?;
 
-        let id = named_types.add_type(name, NamedType::Fixed(size));
+        let id = named_types.add_type(fullname, NamedType::Fixed(size));
         Ok(SchemaType::Reference(id))
     }
 
@@ -155,6 +194,13 @@ impl SchemaType {
             _ => Err(Error::InvalidType),
         }?;
 
+        let namespace = match attributes.get("namespace") {
+            Some(Value::String(namespace)) => Some(namespace.as_ref()),
+            _ => None,
+        };
+
+        let fullname = Fullname::build(name, namespace);
+
         let symbols = match attributes.get("symbols") {
             Some(Value::Array(symbols)) => symbols
                 .iter()
@@ -166,7 +212,7 @@ impl SchemaType {
             _ => Err(Error::InvalidType),
         }?;
 
-        let id = named_types.add_type(name, NamedType::Enum(symbols));
+        let id = named_types.add_type(fullname, NamedType::Enum(symbols));
         Ok(SchemaType::Reference(id))
     }
 
@@ -179,7 +225,14 @@ impl SchemaType {
             _ => Err(Error::InvalidType),
         }?;
 
-        let id = named_types.reserve_name(name);
+        let namespace = match attributes.get("namespace") {
+            Some(Value::String(namespace)) => Some(namespace.as_ref()),
+            _ => None,
+        };
+
+        let fullname = Fullname::build(name, namespace);
+
+        let id = named_types.reserve_name(fullname);
 
         let fields = match attributes.get("fields") {
             Some(Value::Array(fields)) => fields
@@ -232,7 +285,7 @@ impl SchemaType {
             "double" => Ok(SchemaType::Double),
             "bytes" => Ok(SchemaType::Bytes),
             "string" => Ok(SchemaType::String),
-            typename => match named_types.lookup_name(typename) {
+            typename => match named_types.lookup_name(&Fullname::from_name(typename)) {
                 Some(id) => Ok(SchemaType::Reference(*id)),
                 None => Err(Error::UnrecognizedType),
             },
@@ -516,5 +569,44 @@ mod tests {
         let actual_type_def = named_types.get(type_id).unwrap();
 
         assert_eq!(*actual_type_def, expected_type_def);
+    }
+
+    #[test]
+    fn build_fullname() {
+        let examples = [
+            ("foo", None, "foo"),
+            ("baz", Some("foo.bar"), "foo.bar.baz"),
+            ("foo.bar", None, "foo.bar"),
+            ("foo.bar", Some("baz"), "foo.bar"),
+        ];
+
+        for (name, namespace, expected_fullname) in examples.iter() {
+            let actual = Fullname::build(name, *namespace);
+            assert_eq!(actual.fullname(), *expected_fullname);
+        }
+    }
+
+    #[test]
+    fn use_fullname_to_resolve_types() {
+        let json_str = r#"
+          [
+             {"type": "fixed", "name": "baz", "namespace": "foo.bar", "size": 42},
+             {"type": "array", "items": "foo.bar.baz"}
+          ]
+        "#;
+        let json: Value = serde_json::from_str(json_str).unwrap();
+
+        let mut named_types = NameRegistry::new();
+        let schema_type = SchemaType::parse(&json, &mut named_types);
+
+        let baz_id = named_types
+            .lookup_name(&Fullname::from_name("foo.bar.baz"))
+            .unwrap();
+
+        let expected = Ok(SchemaType::Union(vec![
+            SchemaType::Reference(*baz_id),
+            SchemaType::Array(Box::new(SchemaType::Reference(*baz_id))),
+        ]));
+        assert_eq!(schema_type, expected);
     }
 }
