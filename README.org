@@ -12,7 +12,8 @@ The initial focus will be reading an Avro container file using the writer's sche
 
 - [X] Primitive types
 - [X] Maps/arrays
-- [ ] Fixed/enums/records
+- [X] Fixed/enums
+- [ ] Records
 - [ ] Unions
 - [ ] Self-referential types
 - [ ] Namespaces
