@@ -21,9 +21,16 @@ enum SchemaType {
 }
 
 #[derive(Debug, PartialEq)]
+struct Field {
+    name: String,
+    schema_type: SchemaType,
+}
+
+#[derive(Debug, PartialEq)]
 enum NamedType {
     Fixed(usize),
     Enum(Vec<String>),
+    Record(Vec<Field>),
 }
 
 struct NameRegistry {
@@ -64,6 +71,7 @@ impl SchemaType {
                     "map" => Self::parse_map(attributes, named_types),
                     "fixed" => Self::parse_fixed(attributes, named_types),
                     "enum" => Self::parse_enum(attributes, named_types),
+                    "record" => Self::parse_record(attributes, named_types),
                     _ => Self::match_primitive_typename(typename),
                 },
                 _ => Err(Error::InvalidSchema),
@@ -145,6 +153,52 @@ impl SchemaType {
 
         let id = named_types.add_type(name, NamedType::Enum(symbols));
         Ok(SchemaType::Reference(id))
+    }
+
+    fn parse_record(
+        attributes: &Map<String, Value>,
+        named_types: &mut NameRegistry,
+    ) -> Result<Self, Error> {
+        let name = match attributes.get("name") {
+            Some(Value::String(name)) => Ok(name),
+            _ => Err(Error::InvalidType),
+        }?;
+
+        let fields = match attributes.get("fields") {
+            Some(Value::Array(fields)) => {
+                let fields = fields
+                    .iter()
+                    .map(|field| match field {
+                        Value::Object(field_attrs) => Self::parse_field(field_attrs, named_types),
+                        _ => Err(Error::InvalidType),
+                    })
+                    .collect::<Result<Vec<Field>, Error>>()?;
+
+                // If this redundant?
+                Ok(fields)
+            }
+            _ => Err(Error::InvalidType),
+        }?;
+
+        let id = named_types.add_type(name, NamedType::Record(fields));
+        Ok(SchemaType::Reference(id))
+    }
+
+    fn parse_field(
+        attributes: &Map<String, Value>,
+        named_types: &mut NameRegistry,
+    ) -> Result<Field, Error> {
+        let name = match attributes.get("name") {
+            Some(Value::String(name)) => Ok(name.clone()),
+            _ => Err(Error::InvalidType),
+        }?;
+
+        let schema_type = match attributes.get("type") {
+            Some(field_type) => Self::parse(field_type, named_types),
+            None => Err(Error::InvalidSchema),
+        }?;
+
+        Ok(Field { name, schema_type })
     }
 
     fn match_primitive_typename(typename: &str) -> Result<Self, Error> {
@@ -293,6 +347,38 @@ mod tests {
 
             let actual = SchemaType::parse(&json, &mut named_types);
             assert_eq!(actual, *expected_error);
+        }
+    }
+
+    #[test]
+    fn parse_record() {
+        let json_str = r#"{
+          "type": "record",
+          "name": "user",
+          "fields": [
+            {"name": "id", "type": "long"},
+            {"name": "email", "type": "string"}
+          ]
+        }"#;
+
+        let expected_type_def = NamedType::Record(vec![
+            Field {
+                name: "id".to_string(),
+                schema_type: SchemaType::Long,
+            },
+            Field {
+                name: "email".to_string(),
+                schema_type: SchemaType::String,
+            },
+        ]);
+
+        let json: Value = serde_json::from_str(json_str).unwrap();
+        let mut named_types = NameRegistry::new();
+
+        if let Ok(SchemaType::Reference(id)) = SchemaType::parse(&json, &mut named_types) {
+            assert_eq!(named_types.get(id), Some(&expected_type_def));
+        } else {
+            panic!("parse should have returned a reference");
         }
     }
 }
