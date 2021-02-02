@@ -39,7 +39,7 @@ struct NameRegistry {
     name_to_id_mappings: HashMap<Fullname, NamedTypeId>,
 }
 
-#[derive(Hash, Eq, PartialEq)]
+#[derive(Clone, Hash, Eq, PartialEq)]
 struct Fullname {
     fullname: String,
     namespace_separator_position: Option<usize>,
@@ -99,18 +99,18 @@ impl NameRegistry {
         self.name_to_id_mappings.get(name)
     }
 
-    fn add_type(&mut self, name: Fullname, definition: NamedType) -> NamedTypeId {
+    fn add_type(&mut self, name: &Fullname, definition: NamedType) -> NamedTypeId {
         let id = self.type_definitions.len();
         self.type_definitions.push(Some(definition));
-        self.name_to_id_mappings.insert(name, id);
+        self.name_to_id_mappings.insert(name.clone(), id);
         id
     }
 
-    fn reserve_name(&mut self, name: Fullname) -> NamedTypeId {
+    fn reserve_name(&mut self, name: &Fullname) -> NamedTypeId {
         // TODO: validate name doesn't already exist
         let id = self.type_definitions.len();
         self.type_definitions.push(None);
-        self.name_to_id_mappings.insert(name, id);
+        self.name_to_id_mappings.insert(name.clone(), id);
         id
     }
 
@@ -121,21 +121,27 @@ impl NameRegistry {
 }
 
 impl SchemaType {
-    fn parse(json: &Value, named_types: &mut NameRegistry) -> Result<Self, Error> {
+    fn parse(
+        json: &Value,
+        named_types: &mut NameRegistry,
+        enclosing_namespace: Option<&str>,
+    ) -> Result<Self, Error> {
         match json {
-            Value::String(typename) => Self::match_typename(typename, named_types),
+            Value::String(typename) => {
+                Self::match_typename(typename, named_types, enclosing_namespace)
+            }
             Value::Object(attributes) => match attributes.get("type") {
                 Some(Value::String(typename)) => match typename.as_ref() {
-                    "array" => Self::parse_array(attributes, named_types),
-                    "map" => Self::parse_map(attributes, named_types),
-                    "fixed" => Self::parse_fixed(attributes, named_types),
-                    "enum" => Self::parse_enum(attributes, named_types),
-                    "record" => Self::parse_record(attributes, named_types),
-                    _ => Self::match_typename(typename, named_types),
+                    "array" => Self::parse_array(attributes, named_types, enclosing_namespace),
+                    "map" => Self::parse_map(attributes, named_types, enclosing_namespace),
+                    "fixed" => Self::parse_fixed(attributes, named_types, enclosing_namespace),
+                    "enum" => Self::parse_enum(attributes, named_types, enclosing_namespace),
+                    "record" => Self::parse_record(attributes, named_types, enclosing_namespace),
+                    _ => Self::match_typename(typename, named_types, enclosing_namespace),
                 },
                 _ => Err(Error::InvalidSchema),
             },
-            Value::Array(types) => Self::parse_union(types, named_types),
+            Value::Array(types) => Self::parse_union(types, named_types, enclosing_namespace),
             _ => Err(Error::InvalidSchema),
         }
     }
@@ -143,11 +149,13 @@ impl SchemaType {
     fn parse_array(
         attributes: &Map<String, Value>,
         named_types: &mut NameRegistry,
+        enclosing_namespace: Option<&str>,
     ) -> Result<Self, Error> {
         match attributes.get("items") {
             Some(item_type) => Ok(SchemaType::Array(Box::new(Self::parse(
                 item_type,
                 named_types,
+                enclosing_namespace,
             )?))),
             None => Err(Error::InvalidSchema),
         }
@@ -156,11 +164,13 @@ impl SchemaType {
     fn parse_map(
         attributes: &Map<String, Value>,
         named_types: &mut NameRegistry,
+        enclosing_namespace: Option<&str>,
     ) -> Result<Self, Error> {
         match attributes.get("values") {
             Some(item_type) => Ok(SchemaType::Map(Box::new(Self::parse(
                 item_type,
                 named_types,
+                enclosing_namespace,
             )?))),
             None => Err(Error::InvalidSchema),
         }
@@ -169,6 +179,7 @@ impl SchemaType {
     fn parse_fixed(
         attributes: &Map<String, Value>,
         named_types: &mut NameRegistry,
+        enclosing_namespace: Option<&str>,
     ) -> Result<Self, Error> {
         let name = match attributes.get("name") {
             Some(Value::String(name)) => Ok(name),
@@ -177,7 +188,7 @@ impl SchemaType {
 
         let namespace = match attributes.get("namespace") {
             Some(Value::String(namespace)) => Some(namespace.as_ref()),
-            _ => None,
+            _ => enclosing_namespace,
         };
 
         let fullname = Fullname::build(name, namespace);
@@ -190,13 +201,14 @@ impl SchemaType {
             _ => Err(Error::InvalidType),
         }?;
 
-        let id = named_types.add_type(fullname, NamedType::Fixed(size));
+        let id = named_types.add_type(&fullname, NamedType::Fixed(size));
         Ok(SchemaType::Reference(id))
     }
 
     fn parse_enum(
         attributes: &Map<String, Value>,
         named_types: &mut NameRegistry,
+        enclosing_namespace: Option<&str>,
     ) -> Result<Self, Error> {
         let name = match attributes.get("name") {
             Some(Value::String(name)) => Ok(name),
@@ -205,7 +217,7 @@ impl SchemaType {
 
         let namespace = match attributes.get("namespace") {
             Some(Value::String(namespace)) => Some(namespace.as_ref()),
-            _ => None,
+            _ => enclosing_namespace,
         };
 
         let fullname = Fullname::build(name, namespace);
@@ -221,13 +233,14 @@ impl SchemaType {
             _ => Err(Error::InvalidType),
         }?;
 
-        let id = named_types.add_type(fullname, NamedType::Enum(symbols));
+        let id = named_types.add_type(&fullname, NamedType::Enum(symbols));
         Ok(SchemaType::Reference(id))
     }
 
     fn parse_record(
         attributes: &Map<String, Value>,
         named_types: &mut NameRegistry,
+        enclosing_namespace: Option<&str>,
     ) -> Result<Self, Error> {
         let name = match attributes.get("name") {
             Some(Value::String(name)) => Ok(name),
@@ -236,18 +249,20 @@ impl SchemaType {
 
         let namespace = match attributes.get("namespace") {
             Some(Value::String(namespace)) => Some(namespace.as_ref()),
-            _ => None,
+            _ => enclosing_namespace,
         };
 
         let fullname = Fullname::build(name, namespace);
 
-        let id = named_types.reserve_name(fullname);
+        let id = named_types.reserve_name(&fullname);
 
         let fields = match attributes.get("fields") {
             Some(Value::Array(fields)) => fields
                 .iter()
                 .map(|field| match field {
-                    Value::Object(field_attrs) => Self::parse_field(field_attrs, named_types),
+                    Value::Object(field_attrs) => {
+                        Self::parse_field(field_attrs, named_types, fullname.namespace())
+                    }
                     _ => Err(Error::InvalidType),
                 })
                 .collect::<Result<Vec<Field>, Error>>(),
@@ -261,6 +276,7 @@ impl SchemaType {
     fn parse_field(
         attributes: &Map<String, Value>,
         named_types: &mut NameRegistry,
+        enclosing_namespace: Option<&str>,
     ) -> Result<Field, Error> {
         let name = match attributes.get("name") {
             Some(Value::String(name)) => Ok(name.clone()),
@@ -268,23 +284,31 @@ impl SchemaType {
         }?;
 
         let schema_type = match attributes.get("type") {
-            Some(field_type) => Self::parse(field_type, named_types),
+            Some(field_type) => Self::parse(field_type, named_types, enclosing_namespace),
             None => Err(Error::InvalidSchema),
         }?;
 
         Ok(Field { name, schema_type })
     }
 
-    fn parse_union(types: &[Value], named_types: &mut NameRegistry) -> Result<Self, Error> {
+    fn parse_union(
+        types: &[Value],
+        named_types: &mut NameRegistry,
+        enclosing_namespace: Option<&str>,
+    ) -> Result<Self, Error> {
         let union_types = types
             .iter()
-            .map(|schema| Self::parse(schema, named_types))
+            .map(|schema| Self::parse(schema, named_types, enclosing_namespace))
             .collect::<Result<Vec<SchemaType>, Error>>()?;
 
         Ok(SchemaType::Union(union_types))
     }
 
-    fn match_typename(typename: &str, named_types: &NameRegistry) -> Result<Self, Error> {
+    fn match_typename(
+        typename: &str,
+        named_types: &NameRegistry,
+        enclosing_namespace: Option<&str>,
+    ) -> Result<Self, Error> {
         match typename {
             "null" => Ok(SchemaType::Null),
             "boolean" => Ok(SchemaType::Boolean),
@@ -294,10 +318,12 @@ impl SchemaType {
             "double" => Ok(SchemaType::Double),
             "bytes" => Ok(SchemaType::Bytes),
             "string" => Ok(SchemaType::String),
-            typename => match named_types.lookup_name(&Fullname::from_name(typename)) {
-                Some(id) => Ok(SchemaType::Reference(*id)),
-                None => Err(Error::UnrecognizedType),
-            },
+            typename => {
+                match named_types.lookup_name(&Fullname::build(typename, enclosing_namespace)) {
+                    Some(id) => Ok(SchemaType::Reference(*id)),
+                    None => Err(Error::UnrecognizedType),
+                }
+            }
         }
     }
 }
@@ -334,7 +360,7 @@ mod tests {
             let json: Value = serde_json::from_str(json_str).unwrap();
             let mut named_types = NameRegistry::new();
 
-            let actual = SchemaType::parse(&json, &mut named_types);
+            let actual = SchemaType::parse(&json, &mut named_types, None);
             assert_eq!(actual, *expected);
         }
     }
@@ -370,7 +396,7 @@ mod tests {
             let json: Value = serde_json::from_str(json_str).unwrap();
             let mut named_types = NameRegistry::new();
 
-            let actual = SchemaType::parse(&json, &mut named_types);
+            let actual = SchemaType::parse(&json, &mut named_types, None);
             assert_eq!(actual, *expected);
         }
     }
@@ -400,7 +426,8 @@ mod tests {
             let json: Value = serde_json::from_str(json_str).unwrap();
             let mut named_types = NameRegistry::new();
 
-            if let Ok(SchemaType::Reference(id)) = SchemaType::parse(&json, &mut named_types) {
+            if let Ok(SchemaType::Reference(id)) = SchemaType::parse(&json, &mut named_types, None)
+            {
                 assert_eq!(named_types.get(id), expected_type_def.as_ref());
             } else {
                 panic!("parse should have returned a reference");
@@ -431,7 +458,7 @@ mod tests {
             let json: Value = serde_json::from_str(json_str).unwrap();
             let mut named_types = NameRegistry::new();
 
-            let actual = SchemaType::parse(&json, &mut named_types);
+            let actual = SchemaType::parse(&json, &mut named_types, None);
             assert_eq!(actual, *expected_error);
         }
     }
@@ -461,7 +488,7 @@ mod tests {
         let json: Value = serde_json::from_str(json_str).unwrap();
         let mut named_types = NameRegistry::new();
 
-        if let Ok(SchemaType::Reference(id)) = SchemaType::parse(&json, &mut named_types) {
+        if let Ok(SchemaType::Reference(id)) = SchemaType::parse(&json, &mut named_types, None) {
             assert_eq!(named_types.get(id), Some(&expected_type_def));
         } else {
             panic!("parse should have returned a reference");
@@ -491,7 +518,7 @@ mod tests {
         let json: Value = serde_json::from_str(json_str).unwrap();
         let mut named_types = NameRegistry::new();
 
-        let parsed_schema = SchemaType::parse(&json, &mut named_types);
+        let parsed_schema = SchemaType::parse(&json, &mut named_types, None);
 
         let user_type_def = match parsed_schema {
             Ok(SchemaType::Reference(user_type_id)) => named_types.get(user_type_id).unwrap(),
@@ -532,7 +559,7 @@ mod tests {
         let json: Value = serde_json::from_str(json_str).unwrap();
 
         let mut named_types = NameRegistry::new();
-        let actual = SchemaType::parse(&json, &mut named_types);
+        let actual = SchemaType::parse(&json, &mut named_types, None);
 
         let expected = Ok(SchemaType::Union(vec![
             SchemaType::Null,
@@ -556,7 +583,7 @@ mod tests {
         let json: Value = serde_json::from_str(json_str).unwrap();
         let mut named_types = NameRegistry::new();
 
-        let type_id = match SchemaType::parse(&json, &mut named_types) {
+        let type_id = match SchemaType::parse(&json, &mut named_types, None) {
             Ok(SchemaType::Reference(type_id)) => type_id,
             _ => panic!("parse should have returned a reference"),
         };
@@ -607,7 +634,7 @@ mod tests {
         let json: Value = serde_json::from_str(json_str).unwrap();
 
         let mut named_types = NameRegistry::new();
-        let schema_type = SchemaType::parse(&json, &mut named_types);
+        let schema_type = SchemaType::parse(&json, &mut named_types, None);
 
         let baz_id = named_types
             .lookup_name(&Fullname::from_name("foo.bar.baz"))
@@ -621,7 +648,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn use_enclosing_namespace() {
         let json_str = r#"
           {
@@ -664,7 +690,7 @@ mod tests {
         let json: Value = serde_json::from_str(json_str).unwrap();
 
         let mut named_types = NameRegistry::new();
-        SchemaType::parse(&json, &mut named_types).unwrap();
+        SchemaType::parse(&json, &mut named_types, None).unwrap();
 
         let user_ref = named_types
             .lookup_name(&Fullname::from_name("com.example.user"))

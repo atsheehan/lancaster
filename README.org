@@ -16,7 +16,7 @@ The initial focus will be reading an Avro container file using the writer's sche
 - [X] Records
 - [X] Unions
 - [X] Self-referential types
-- [ ] Namespaces
+- [X] Namespaces
 
 *** Deserializing types
 
