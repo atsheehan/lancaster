@@ -75,8 +75,7 @@ impl<'a> Fullname {
     }
 
     fn namespace(&'a self) -> Option<&'a str> {
-        self.namespace_separator_position
-            .map(|index| &self.fullname[0..index])
+        self.namespace_separator_position.map(|index| &self.fullname[0..index])
     }
 }
 
@@ -121,15 +120,9 @@ impl NameRegistry {
 }
 
 impl SchemaType {
-    fn parse(
-        json: &Value,
-        named_types: &mut NameRegistry,
-        enclosing_namespace: Option<&str>,
-    ) -> Result<Self, Error> {
+    fn parse(json: &Value, named_types: &mut NameRegistry, enclosing_namespace: Option<&str>) -> Result<Self, Error> {
         match json {
-            Value::String(typename) => {
-                Self::match_typename(typename, named_types, enclosing_namespace)
-            }
+            Value::String(typename) => Self::match_typename(typename, named_types, enclosing_namespace),
             Value::Object(attributes) => match attributes.get("type") {
                 Some(Value::String(typename)) => match typename.as_ref() {
                     "array" => Self::parse_array(attributes, named_types, enclosing_namespace),
@@ -260,9 +253,7 @@ impl SchemaType {
             Some(Value::Array(fields)) => fields
                 .iter()
                 .map(|field| match field {
-                    Value::Object(field_attrs) => {
-                        Self::parse_field(field_attrs, named_types, fullname.namespace())
-                    }
+                    Value::Object(field_attrs) => Self::parse_field(field_attrs, named_types, fullname.namespace()),
                     _ => Err(Error::InvalidType),
                 })
                 .collect::<Result<Vec<Field>, Error>>(),
@@ -318,12 +309,10 @@ impl SchemaType {
             "double" => Ok(SchemaType::Double),
             "bytes" => Ok(SchemaType::Bytes),
             "string" => Ok(SchemaType::String),
-            typename => {
-                match named_types.lookup_name(&Fullname::build(typename, enclosing_namespace)) {
-                    Some(id) => Ok(SchemaType::Reference(*id)),
-                    None => Err(Error::UnrecognizedType),
-                }
-            }
+            typename => match named_types.lookup_name(&Fullname::build(typename, enclosing_namespace)) {
+                Some(id) => Ok(SchemaType::Reference(*id)),
+                None => Err(Error::UnrecognizedType),
+            },
         }
     }
 }
@@ -385,9 +374,7 @@ mod tests {
             ),
             (
                 r#"{"type": "map", "values": {"type": "map", "values": "long"}}"#,
-                Ok(SchemaType::Map(Box::new(SchemaType::Map(Box::new(
-                    SchemaType::Long,
-                ))))),
+                Ok(SchemaType::Map(Box::new(SchemaType::Map(Box::new(SchemaType::Long))))),
             ),
             (r#"{"type": "map"}"#, Err(Error::InvalidSchema)),
         ];
@@ -426,8 +413,7 @@ mod tests {
             let json: Value = serde_json::from_str(json_str).unwrap();
             let mut named_types = NameRegistry::new();
 
-            if let Ok(SchemaType::Reference(id)) = SchemaType::parse(&json, &mut named_types, None)
-            {
+            if let Ok(SchemaType::Reference(id)) = SchemaType::parse(&json, &mut named_types, None) {
                 assert_eq!(named_types.get(id), expected_type_def.as_ref());
             } else {
                 panic!("parse should have returned a reference");
@@ -435,19 +421,10 @@ mod tests {
         }
 
         let invalid_examples = [
-            (
-                r#"{"type": "fixed", "name": "blob"}"#,
-                Err(Error::InvalidType),
-            ),
+            (r#"{"type": "fixed", "name": "blob"}"#, Err(Error::InvalidType)),
             (r#"{"type": "fixed", "size": 42}"#, Err(Error::InvalidType)),
-            (
-                r#"{"type": "enum", "symbols": ["foo"]}"#,
-                Err(Error::InvalidType),
-            ),
-            (
-                r#"{"type": "enum", "name": "suit"}"#,
-                Err(Error::InvalidType),
-            ),
+            (r#"{"type": "enum", "symbols": ["foo"]}"#, Err(Error::InvalidType)),
+            (r#"{"type": "enum", "name": "suit"}"#, Err(Error::InvalidType)),
             (
                 r#"{"type": "enum", "name": "suit", "symbols": "diamonds"}"#,
                 Err(Error::InvalidType),
@@ -595,10 +572,7 @@ mod tests {
             },
             Field {
                 name: "next".to_string(),
-                schema_type: SchemaType::Union(vec![
-                    SchemaType::Null,
-                    SchemaType::Reference(type_id),
-                ]),
+                schema_type: SchemaType::Union(vec![SchemaType::Null, SchemaType::Reference(type_id)]),
             },
         ]);
 
@@ -636,9 +610,7 @@ mod tests {
         let mut named_types = NameRegistry::new();
         let schema_type = SchemaType::parse(&json, &mut named_types, None);
 
-        let baz_id = named_types
-            .lookup_name(&Fullname::from_name("foo.bar.baz"))
-            .unwrap();
+        let baz_id = named_types.lookup_name(&Fullname::from_name("foo.bar.baz")).unwrap();
 
         let expected = Ok(SchemaType::Union(vec![
             SchemaType::Reference(*baz_id),
