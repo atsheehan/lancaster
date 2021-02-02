@@ -42,32 +42,41 @@ struct NameRegistry {
 #[derive(Hash, Eq, PartialEq)]
 struct Fullname {
     fullname: String,
+    namespace_separator_position: Option<usize>,
 }
 
-impl Fullname {
+impl<'a> Fullname {
     fn from_name(name: &str) -> Self {
         Self::build(name, None)
     }
 
     fn build(name: &str, namespace: Option<&str>) -> Self {
-        let fullname = match name.rfind('.') {
-            Some(_) => name.to_string(),
+        let (namespace_separator_position, fullname) = match name.rfind('.') {
+            Some(position) => (Some(position), name.to_string()),
             None => match namespace {
                 Some(namespace) => {
                     let mut fullname = namespace.to_string();
                     fullname.push('.');
                     fullname.push_str(name);
-                    fullname
+                    (Some(namespace.len()), fullname)
                 }
-                None => name.to_string(),
+                None => (None, name.to_string()),
             },
         };
 
-        Self { fullname }
+        Self {
+            namespace_separator_position,
+            fullname,
+        }
     }
 
     fn fullname(&self) -> &str {
         self.fullname.as_str()
+    }
+
+    fn namespace(&'a self) -> Option<&'a str> {
+        self.namespace_separator_position
+            .map(|index| &self.fullname[0..index])
     }
 }
 
@@ -574,15 +583,16 @@ mod tests {
     #[test]
     fn build_fullname() {
         let examples = [
-            ("foo", None, "foo"),
-            ("baz", Some("foo.bar"), "foo.bar.baz"),
-            ("foo.bar", None, "foo.bar"),
-            ("foo.bar", Some("baz"), "foo.bar"),
+            ("foo", None, None, "foo"),
+            ("baz", Some("foo.bar"), Some("foo.bar"), "foo.bar.baz"),
+            ("foo.bar", None, Some("foo"), "foo.bar"),
+            ("foo.bar", Some("baz"), Some("foo"), "foo.bar"),
         ];
 
-        for (name, namespace, expected_fullname) in examples.iter() {
-            let actual = Fullname::build(name, *namespace);
+        for (name, given_namespace, expected_namespace, expected_fullname) in examples.iter() {
+            let actual = Fullname::build(name, *given_namespace);
             assert_eq!(actual.fullname(), *expected_fullname);
+            assert_eq!(actual.namespace(), *expected_namespace);
         }
     }
 
@@ -608,5 +618,89 @@ mod tests {
             SchemaType::Array(Box::new(SchemaType::Reference(*baz_id))),
         ]));
         assert_eq!(schema_type, expected);
+    }
+
+    #[test]
+    #[ignore]
+    fn use_enclosing_namespace() {
+        let json_str = r#"
+          {
+              "type": "record",
+              "name": "user",
+              "namespace": "com.example",
+              "fields": [
+                  {
+                      "name": "id1",
+                      "type": {
+                          "type": "fixed",
+                          "name": "identifier",
+                          "size": 16
+                      }
+                  },
+                  {
+                      "name": "id2",
+                      "type": {
+                          "type": "fixed",
+                          "name": "identifier",
+                          "namespace": "net.example",
+                          "size": 16
+                      }
+                  },
+                  {
+                      "name": "id3",
+                      "type": "identifier"
+                  },
+                  {
+                      "name": "id4",
+                      "type": "com.example.identifier"
+                  },
+                  {
+                      "name": "id5",
+                      "type": "net.example.identifier"
+                  }
+              ]
+          }
+        "#;
+        let json: Value = serde_json::from_str(json_str).unwrap();
+
+        let mut named_types = NameRegistry::new();
+        SchemaType::parse(&json, &mut named_types).unwrap();
+
+        let user_ref = named_types
+            .lookup_name(&Fullname::from_name("com.example.user"))
+            .unwrap();
+        let id_dotcom_ref = named_types
+            .lookup_name(&Fullname::from_name("com.example.identifier"))
+            .unwrap();
+        let id_dotnet_ref = named_types
+            .lookup_name(&Fullname::from_name("net.example.identifier"))
+            .unwrap();
+
+        let expected_user_def = NamedType::Record(vec![
+            Field {
+                name: "id1".to_string(),
+                schema_type: SchemaType::Reference(*id_dotcom_ref),
+            },
+            Field {
+                name: "id2".to_string(),
+                schema_type: SchemaType::Reference(*id_dotnet_ref),
+            },
+            Field {
+                name: "id3".to_string(),
+                schema_type: SchemaType::Reference(*id_dotcom_ref),
+            },
+            Field {
+                name: "id4".to_string(),
+                schema_type: SchemaType::Reference(*id_dotcom_ref),
+            },
+            Field {
+                name: "id5".to_string(),
+                schema_type: SchemaType::Reference(*id_dotnet_ref),
+            },
+        ]);
+
+        let actual_user_def = named_types.get(*user_ref).unwrap();
+
+        assert_eq!(*actual_user_def, expected_user_def);
     }
 }
