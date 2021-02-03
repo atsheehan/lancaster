@@ -49,3 +49,13 @@ The initial focus will be reading an Avro container file using the writer's sche
   rustup component add rustfmt
   rustup component add clippy
 #+END_SRC
+
+** Test Cases
+
+The =script/generate_sample_files.groovy= helper uses the Java Avro library to generate some sample Avro files to validate our reader. New examples can be added to the script and re-run with
+
+#+BEGIN_SRC shell
+  groovy script/generate_sample_files.groovy
+#+END_SRC
+
+All files will be modified after running this script since they have a randomly generated sync marker.
