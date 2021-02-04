@@ -1,4 +1,5 @@
 use crate::Error;
+use std::collections::HashMap;
 use std::io::Read;
 
 fn read_long<R: Read>(reader: &mut R) -> Result<i64, Error> {
@@ -39,6 +40,34 @@ fn read_string<R: Read>(reader: &mut R) -> Result<String, Error> {
     let mut buffer = vec![0; byte_length];
     reader.read_exact(&mut buffer)?;
     String::from_utf8(buffer).map_err(|_| Error::BadEncoding)
+}
+
+fn read_metadata<R: Read>(reader: &mut R) -> Result<HashMap<String, String>, Error> {
+    let mut metadata: HashMap<String, String> = HashMap::new();
+    let mut num_values = read_block_count(reader)?;
+
+    while num_values > 0 {
+        for _ in 0..num_values {
+            let key = read_string(reader)?;
+            let value = read_string(reader)?;
+
+            metadata.insert(key, value);
+        }
+
+        num_values = read_block_count(reader)?;
+    }
+
+    Ok(metadata)
+}
+
+fn read_block_count<R: Read>(reader: &mut R) -> Result<i64, Error> {
+    let num_values = read_long(reader)?;
+    if num_values.is_negative() {
+        let _block_size_in_bytes = read_long(reader)?;
+        Ok(num_values.abs())
+    } else {
+        Ok(num_values)
+    }
 }
 
 #[cfg(test)]
@@ -115,5 +144,29 @@ mod tests {
         assert_eq!(read_string(&mut reader), Ok("foo".to_string()));
         assert_eq!(read_string(&mut reader), Ok("☃☃".to_string()));
         assert_eq!(read_string(&mut reader), Err(Error::IO(ErrorKind::UnexpectedEof)));
+    }
+
+    #[test]
+    fn read_metadata_map() {
+        let input = vec![
+            0x04, // 2 key value pairs in this block
+            0x06, 0x66, 0x6f, 0x6f, // "foo"
+            0x06, 0x62, 0x61, 0x72, // "bar"
+            0x06, 0x62, 0x61, 0x7a, // "baz"
+            0x06, 0x62, 0x61, 0x74, // "bat"
+            0x01, // 1 key value pair in this block, encoded as -1 to also specify length
+            0x18, // block is 12 bytes long
+            0x0a, 0x68, 0x65, 0x6c, 0x6c, 0x6f, // "hello"
+            0x0a, 0x77, 0x6f, 0x72, 0x6c, 0x64, // "world"
+            0x00, // end with empty block
+        ];
+
+        let mut reader = input.as_slice();
+
+        let metadata = read_metadata(&mut reader).unwrap();
+        assert_eq!(metadata.len(), 3);
+        assert_eq!(metadata.get("foo"), Some(&"bar".to_string()));
+        assert_eq!(metadata.get("baz"), Some(&"bat".to_string()));
+        assert_eq!(metadata.get("hello"), Some(&"world".to_string()));
     }
 }
