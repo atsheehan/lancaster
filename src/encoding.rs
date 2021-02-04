@@ -34,6 +34,13 @@ fn read_byte<R: Read>(reader: &mut R) -> Result<u8, Error> {
     Ok(buffer[0])
 }
 
+fn read_string<R: Read>(reader: &mut R) -> Result<String, Error> {
+    let byte_length = read_long(reader)? as usize;
+    let mut buffer = vec![0; byte_length];
+    reader.read_exact(&mut buffer)?;
+    String::from_utf8(buffer).map_err(|_| Error::BadEncoding)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +105,15 @@ mod tests {
         assert_eq!(read_long(&mut reader), Ok(-64));
         assert_eq!(read_long(&mut reader), Ok(64));
         assert_eq!(read_long(&mut reader), Err(Error::IO(ErrorKind::UnexpectedEof)));
+    }
+
+    #[test]
+    fn read_strings() {
+        let input = vec![0x06, 0x66, 0x6f, 0x6f, 0x0c, 0xe2, 0x98, 0x83, 0xe2, 0x98, 0x83];
+        let mut reader = input.as_slice();
+
+        assert_eq!(read_string(&mut reader), Ok("foo".to_string()));
+        assert_eq!(read_string(&mut reader), Ok("☃☃".to_string()));
+        assert_eq!(read_string(&mut reader), Err(Error::IO(ErrorKind::UnexpectedEof)));
     }
 }
