@@ -3,7 +3,40 @@
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
+// TODO: more descriptive errors
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    UnrecognizedType,
+    InvalidType,
+    InvalidSchema,
+}
+
 type NamedTypeId = usize;
+
+#[derive(Debug)]
+struct Schema {
+    root: SchemaType,
+    name_registry: NameRegistry,
+}
+
+impl Schema {
+    fn parse(schema_str: &str) -> Result<Self, Error> {
+        let json: Value = serde_json::from_str(schema_str).map_err(|_| Error::InvalidSchema)?;
+        let mut name_registry = NameRegistry::new();
+        let root = SchemaType::parse(&json, &mut name_registry, None)?;
+
+        Ok(Self { root, name_registry })
+    }
+
+    fn root(&self) -> &SchemaType {
+        &self.root
+    }
+
+    fn resolve_named_type(&self, id: NamedTypeId) -> &NamedType {
+        self.name_registry.type_definitions[id].as_ref().unwrap()
+    }
+}
 
 #[derive(Debug, PartialEq)]
 enum SchemaType {
@@ -34,12 +67,13 @@ enum NamedType {
     Record(Vec<Field>),
 }
 
+#[derive(Debug)]
 struct NameRegistry {
     type_definitions: Vec<Option<NamedType>>,
     name_to_id_mappings: HashMap<Fullname, NamedTypeId>,
 }
 
-#[derive(Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 struct Fullname {
     fullname: String,
     namespace_separator_position: Option<usize>,
@@ -315,13 +349,6 @@ impl SchemaType {
             },
         }
     }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    UnrecognizedType,
-    InvalidType,
-    InvalidSchema,
 }
 
 #[cfg(test)]
@@ -700,5 +727,48 @@ mod tests {
         let actual_user_def = named_types.get(*user_ref).unwrap();
 
         assert_eq!(*actual_user_def, expected_user_def);
+    }
+
+    #[test]
+    fn parse_schema_from_str() {
+        let schema = Schema::parse(r#""string""#);
+        assert!(schema.is_ok());
+        assert_eq!(*schema.unwrap().root(), SchemaType::String);
+
+        let schema = Schema::parse(r#"lol"#);
+        assert!(schema.is_err());
+        assert_eq!(schema.unwrap_err(), Error::InvalidSchema);
+    }
+
+    #[test]
+    fn resolve_names_from_records() {
+        let json_str = r#"{
+          "type": "record",
+          "name": "user",
+          "fields": [
+            {"name": "id", "type": "long"},
+            {"name": "email", "type": "string"}
+          ]
+        }"#;
+
+        let expected_type_def = NamedType::Record(vec![
+            Field {
+                name: "id".to_string(),
+                schema_type: SchemaType::Long,
+            },
+            Field {
+                name: "email".to_string(),
+                schema_type: SchemaType::String,
+            },
+        ]);
+
+        let schema = Schema::parse(json_str).unwrap();
+
+        let record_id = match schema.root() {
+            SchemaType::Reference(record_id) => record_id,
+            _ => panic!("root type should be a reference"),
+        };
+
+        assert_eq!(*schema.resolve_named_type(*record_id), expected_type_def);
     }
 }
