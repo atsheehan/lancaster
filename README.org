@@ -21,24 +21,24 @@ The initial focus will be reading an Avro container file using the writer's sche
 *** Deserializing types
 
 - [ ] null
-- [ ] boolean
+- [X] boolean
 - [ ] int
 - [ ] long
 - [ ] float
 - [ ] double
 - [ ] bytes
-- [ ] string
+- [X] string
 - [ ] arrays
 - [ ] maps
 - [ ] fixed
-- [ ] enum
+- [X] enum
 - [ ] record
 - [ ] union
 
 *** Reading an Avro container file
 
-- [ ] Reading header and metadata
-- [ ] Reading data blocks
+- [X] Reading header and metadata
+- [X] Reading data blocks
 - [ ] Deflate codec
 
 * Development
