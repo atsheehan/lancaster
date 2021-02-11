@@ -32,3 +32,19 @@ def writeAvroFile(dir, filename, schema, data) {
 writeAvroFile(dir, "boolean.avro", parseSchema('"boolean"'), [true, false])
 writeAvroFile(dir, "long.avro", parseSchema('"long"'), [42, -100, 0, -9223372036854775808, 9223372036854775807])
 writeAvroFile(dir, "string.avro", parseSchema('"string"'), ["foo", "bar", "", "\u263A"])
+
+def enumSchema = parseSchema("""
+{
+  "type": "enum",
+  "name": "suit",
+  "symbols": ["hearts", "diamonds", "clubs", "spades"]
+}
+""")
+
+def enumValues = [
+    new GenericData.EnumSymbol(enumSchema, "clubs"),
+    new GenericData.EnumSymbol(enumSchema, "hearts"),
+    new GenericData.EnumSymbol(enumSchema, "spades"),
+]
+
+writeAvroFile(dir, "enum.avro", enumSchema, enumValues)
