@@ -17,16 +17,18 @@ def parseSchema(jsonSchema) {
 }
 
 def writeAvroFile(dir, filename, schema, data) {
-    def outputFile = new File(dir, filename)
-    def datumWriter = new GenericDatumWriter(schema)
-    def dataFileWriter = new DataFileWriter(datumWriter)
-    dataFileWriter.create(schema, outputFile)
+    new File(dir, filename).withOutputStream { stream ->
+        def datumWriter = new GenericDatumWriter(schema)
+        def dataFileWriter = new DataFileWriter(datumWriter)
+        def syncMarker = "abcdefghijklmnop".getBytes()
+        dataFileWriter.create(schema, stream, syncMarker)
 
-    data.each {
-        dataFileWriter.append(it)
+        data.each {
+            dataFileWriter.append(it)
+        }
+
+        dataFileWriter.close()
     }
-
-    dataFileWriter.close()
 }
 
 writeAvroFile(dir, "boolean.avro", parseSchema('"boolean"'), [true, false])

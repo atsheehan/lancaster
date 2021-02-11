@@ -57,5 +57,3 @@ The =script/generate_sample_files.groovy= helper uses the Java Avro library to g
 #+BEGIN_SRC shell
   groovy script/generate_sample_files.groovy
 #+END_SRC
-
-All files will be modified after running this script since they have a randomly generated sync marker.
