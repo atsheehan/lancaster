@@ -13,3 +13,6 @@ serde_json = "1.0"
 
 # Deflate codec
 flate2 = "1.0"
+
+[profile.release]
+debug = true

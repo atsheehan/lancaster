@@ -11,7 +11,7 @@ use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
 #[derive(PartialEq, Debug)]
-enum AvroValue<'a> {
+pub enum AvroValue<'a> {
     Null,
     Boolean(bool),
     Int(i32),
@@ -28,7 +28,7 @@ enum AvroValue<'a> {
 }
 
 #[derive(PartialEq, Debug)]
-enum Error {
+pub enum Error {
     IO(io::ErrorKind),
     InvalidFormat,
     BadEncoding,
@@ -41,12 +41,12 @@ impl From<io::Error> for Error {
     }
 }
 
-struct SchemaRegistry {
+pub struct SchemaRegistry {
     schemas: Vec<Schema>,
 }
 
 impl SchemaRegistry {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { schemas: Vec::new() }
     }
 
@@ -68,7 +68,7 @@ enum Codec {
 }
 
 #[derive(Debug)]
-struct AvroDatafile<'a> {
+pub struct AvroDatafile<'a> {
     schema: &'a Schema,
     sync_marker: SyncMarker,
     position: Option<ReaderPosition<BufReader<File>>>,
@@ -76,7 +76,7 @@ struct AvroDatafile<'a> {
 }
 
 impl<'a> AvroDatafile<'a> {
-    fn open<P: AsRef<Path>>(path: P, schema_registry: &'a mut SchemaRegistry) -> Result<Self, Error> {
+    pub fn open<P: AsRef<Path>>(path: P, schema_registry: &'a mut SchemaRegistry) -> Result<Self, Error> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
 
@@ -104,6 +104,7 @@ impl<'a> AvroDatafile<'a> {
         let mut sync_marker: SyncMarker = [0; 16];
         reader.read_exact(&mut sync_marker)?;
 
+        // TODO: codec
         Ok(Self {
             schema,
             sync_marker,
@@ -261,6 +262,7 @@ impl<R: BufRead> Read for DataBlockReader<R> {
 impl<'a> Iterator for AvroDatafile<'a> {
     type Item = Result<AvroValue<'a>, Error>;
 
+    // TODO stop iterating when EOF detected
     fn next(&mut self) -> Option<Result<AvroValue<'a>, Error>> {
         // We use an Option for position so we can take ownership of
         // the reader using `take`. This is necessary when we're

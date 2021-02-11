@@ -14,19 +14,26 @@ pub enum Error {
 
 type NamedTypeId = usize;
 
-#[derive(Debug)]
-pub(crate) struct Schema {
+#[derive(Debug, PartialEq)]
+pub struct Schema {
     root: SchemaType,
-    name_registry: NameRegistry,
+    type_definitions: Vec<NamedType>,
 }
 
 impl Schema {
     pub(crate) fn parse(schema_str: &str) -> Result<Self, Error> {
         let json: Value = serde_json::from_str(schema_str).map_err(|_| Error::InvalidSchema)?;
-        let mut name_registry = NameRegistry::new();
-        let root = SchemaType::parse(&json, &mut name_registry, None)?;
 
-        Ok(Self { root, name_registry })
+        let mut named_types = NameRegistry::new();
+        let root = SchemaType::parse(&json, &mut named_types, None)?;
+
+        let type_definitions = named_types
+            .type_definitions
+            .into_iter()
+            .map(|def| def.ok_or(Error::InvalidType))
+            .collect::<Result<Vec<NamedType>, Error>>()?;
+
+        Ok(Self { root, type_definitions })
     }
 
     pub(crate) fn root(&self) -> &SchemaType {
@@ -34,7 +41,7 @@ impl Schema {
     }
 
     pub(crate) fn resolve_named_type(&self, id: NamedTypeId) -> &NamedType {
-        self.name_registry.type_definitions[id].as_ref().unwrap()
+        &self.type_definitions[id]
     }
 }
 
@@ -62,7 +69,7 @@ pub(crate) struct Field {
 
 impl Field {
     pub(crate) fn name(&self) -> &str {
-        self.name.as_ref()
+        self.name.as_str()
     }
 
     pub(crate) fn schema_type(&self) -> &SchemaType {
