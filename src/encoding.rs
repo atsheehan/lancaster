@@ -2,7 +2,11 @@ use crate::Error;
 use std::collections::HashMap;
 use std::io::Read;
 
-fn read_long<R: Read>(reader: &mut R) -> Result<i64, Error> {
+pub(crate) fn read_bool<R: Read>(reader: &mut R) -> Result<bool, Error> {
+    Ok(read_byte(reader)? == 1)
+}
+
+pub(crate) fn read_long<R: Read>(reader: &mut R) -> Result<i64, Error> {
     Ok(read_varint_long(reader).map(decode_zigzag_long)?)
 }
 
@@ -42,7 +46,7 @@ fn read_string<R: Read>(reader: &mut R) -> Result<String, Error> {
     String::from_utf8(buffer).map_err(|_| Error::BadEncoding)
 }
 
-fn read_metadata<R: Read>(reader: &mut R) -> Result<HashMap<String, String>, Error> {
+pub(crate) fn read_metadata<R: Read>(reader: &mut R) -> Result<HashMap<String, String>, Error> {
     let mut metadata: HashMap<String, String> = HashMap::new();
     let mut num_values = read_block_count(reader)?;
 
@@ -134,6 +138,17 @@ mod tests {
         assert_eq!(read_long(&mut reader), Ok(-64));
         assert_eq!(read_long(&mut reader), Ok(64));
         assert_eq!(read_long(&mut reader), Err(Error::IO(ErrorKind::UnexpectedEof)));
+    }
+
+    #[test]
+    fn read_bools() {
+        let input = vec![0x00, 0x01, 0x00];
+        let mut reader = input.as_slice();
+
+        assert_eq!(read_bool(&mut reader), Ok(false));
+        assert_eq!(read_bool(&mut reader), Ok(true));
+        assert_eq!(read_bool(&mut reader), Ok(false));
+        assert_eq!(read_bool(&mut reader), Err(Error::IO(ErrorKind::UnexpectedEof)));
     }
 
     #[test]

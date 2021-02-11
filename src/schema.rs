@@ -15,13 +15,13 @@ pub enum Error {
 type NamedTypeId = usize;
 
 #[derive(Debug)]
-struct Schema {
+pub(crate) struct Schema {
     root: SchemaType,
     name_registry: NameRegistry,
 }
 
 impl Schema {
-    fn parse(schema_str: &str) -> Result<Self, Error> {
+    pub(crate) fn parse(schema_str: &str) -> Result<Self, Error> {
         let json: Value = serde_json::from_str(schema_str).map_err(|_| Error::InvalidSchema)?;
         let mut name_registry = NameRegistry::new();
         let root = SchemaType::parse(&json, &mut name_registry, None)?;
@@ -29,17 +29,17 @@ impl Schema {
         Ok(Self { root, name_registry })
     }
 
-    fn root(&self) -> &SchemaType {
+    pub(crate) fn root(&self) -> &SchemaType {
         &self.root
     }
 
-    fn resolve_named_type(&self, id: NamedTypeId) -> &NamedType {
+    pub(crate) fn resolve_named_type(&self, id: NamedTypeId) -> &NamedType {
         self.name_registry.type_definitions[id].as_ref().unwrap()
     }
 }
 
 #[derive(Debug, PartialEq)]
-enum SchemaType {
+pub(crate) enum SchemaType {
     Null,
     Boolean,
     Int,
@@ -55,13 +55,13 @@ enum SchemaType {
 }
 
 #[derive(Debug, PartialEq)]
-struct Field {
+pub(crate) struct Field {
     name: String,
     schema_type: SchemaType,
 }
 
 #[derive(Debug, PartialEq)]
-enum NamedType {
+pub(crate) enum NamedType {
     Fixed(usize),
     Enum(Vec<String>),
     Record(Vec<Field>),
