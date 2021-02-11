@@ -39,7 +39,7 @@ fn read_byte<R: Read>(reader: &mut R) -> Result<u8, Error> {
     Ok(buffer[0])
 }
 
-fn read_string<R: Read>(reader: &mut R) -> Result<String, Error> {
+pub(crate) fn read_string<R: Read>(reader: &mut R) -> Result<String, Error> {
     let byte_length = read_long(reader)? as usize;
     let mut buffer = vec![0; byte_length];
     reader.read_exact(&mut buffer)?;

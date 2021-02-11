@@ -11,6 +11,7 @@ use std::path::Path;
 #[derive(PartialEq, Debug)]
 enum AvroValue {
     Boolean(bool),
+    String(String),
 }
 
 #[derive(PartialEq, Debug)]
@@ -66,6 +67,7 @@ impl AvroDatafile {
     fn read_value<R: Read>(reader: &mut R, schema_type: &SchemaType) -> Result<AvroValue, Error> {
         match schema_type {
             SchemaType::Boolean => Ok(AvroValue::Boolean(encoding::read_bool(reader)?)),
+            SchemaType::String => Ok(AvroValue::String(encoding::read_string(reader)?)),
             _ => Err(Error::BadEncoding),
         }
     }
@@ -132,8 +134,24 @@ mod tests {
     #[test]
     fn read_booleans() {
         let datafile = AvroDatafile::open("test_cases/boolean.avro").unwrap();
-        let objects: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
-        assert_eq!(objects, vec![AvroValue::Boolean(true), AvroValue::Boolean(false)]);
+        let expected = vec![AvroValue::Boolean(true), AvroValue::Boolean(false)];
+
+        let actual: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn read_strings() {
+        let datafile = AvroDatafile::open("test_cases/string.avro").unwrap();
+        let expected = vec![
+            AvroValue::String("foo".to_string()),
+            AvroValue::String("bar".to_string()),
+            AvroValue::String("".to_string()),
+            AvroValue::String("\u{263A}".to_string()),
+        ];
+
+        let actual: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
+        assert_eq!(actual, expected);
     }
 
     #[test]
