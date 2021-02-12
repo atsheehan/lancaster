@@ -15,6 +15,7 @@ enum AvroValue<'a> {
     Int(i32),
     Long(i64),
     Float(f32),
+    Double(f64),
     String(String),
     Enum(&'a str),
 }
@@ -99,6 +100,7 @@ impl<'a> AvroDatafile<'a> {
             SchemaType::Int => Ok(AvroValue::Int(encoding::read_long(reader)? as i32)),
             SchemaType::Long => Ok(AvroValue::Long(encoding::read_long(reader)?)),
             SchemaType::Float => Ok(AvroValue::Float(encoding::read_float(reader)?)),
+            SchemaType::Double => Ok(AvroValue::Double(encoding::read_double(reader)?)),
             SchemaType::String => Ok(AvroValue::String(encoding::read_string(reader)?)),
             SchemaType::Reference(id) => {
                 let schema_type = schema.resolve_named_type(*id);
@@ -216,6 +218,14 @@ mod tests {
                     AvroValue::Float(0.0),
                     AvroValue::Float(3.402_823_5E38),
                     AvroValue::Float(-3.402_823_5E38),
+                ],
+            ),
+            (
+                "test_cases/double.avro",
+                vec![
+                    AvroValue::Double(0.0),
+                    AvroValue::Double(std::f64::MAX),
+                    AvroValue::Double(std::f64::MIN),
                 ],
             ),
             (

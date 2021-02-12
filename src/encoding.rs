@@ -14,6 +14,14 @@ pub(crate) fn read_float<R: Read>(reader: &mut R) -> Result<f32, Error> {
     Ok(f32::from_bits(int))
 }
 
+pub(crate) fn read_double<R: Read>(reader: &mut R) -> Result<f64, Error> {
+    let mut buffer: [u8; 8] = [0; 8];
+    reader.read_exact(&mut buffer)?;
+
+    let int = u64::from_le_bytes(buffer);
+    Ok(f64::from_bits(int))
+}
+
 pub(crate) fn read_long<R: Read>(reader: &mut R) -> Result<i64, Error> {
     Ok(read_varint_long(reader).map(decode_zigzag_long)?)
 }
@@ -168,6 +176,22 @@ mod tests {
         assert_eq!(read_float(&mut reader), Ok(f32::NEG_INFINITY));
         assert!(read_float(&mut reader).unwrap().is_nan());
         assert_eq!(read_float(&mut reader), Err(Error::IO(ErrorKind::UnexpectedEof)));
+    }
+
+    #[test]
+    fn read_doubles() {
+        #[rustfmt::skip]
+        let input = vec![
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xef, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xef, 0x7f,
+        ];
+        let mut reader = input.as_slice();
+
+        assert_eq!(read_double(&mut reader), Ok(0.0));
+        assert_eq!(read_double(&mut reader), Ok(std::f64::MIN));
+        assert_eq!(read_double(&mut reader), Ok(std::f64::MAX));
+        assert_eq!(read_double(&mut reader), Err(Error::IO(ErrorKind::UnexpectedEof)));
     }
 
     #[test]
