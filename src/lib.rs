@@ -10,7 +10,10 @@ use std::path::Path;
 
 #[derive(PartialEq, Debug)]
 enum AvroValue<'a> {
+    Null,
     Boolean(bool),
+    Int(i32),
+    Long(i64),
     String(String),
     Enum(&'a str),
 }
@@ -90,7 +93,10 @@ impl<'a> AvroDatafile<'a> {
         schema: &'a Schema,
     ) -> Result<AvroValue<'a>, Error> {
         match schema_type {
+            SchemaType::Null => Ok(AvroValue::Null),
             SchemaType::Boolean => Ok(AvroValue::Boolean(encoding::read_bool(reader)?)),
+            SchemaType::Int => Ok(AvroValue::Int(encoding::read_long(reader)? as i32)),
+            SchemaType::Long => Ok(AvroValue::Long(encoding::read_long(reader)?)),
             SchemaType::String => Ok(AvroValue::String(encoding::read_string(reader)?)),
             SchemaType::Reference(id) => {
                 let schema_type = schema.resolve_named_type(*id);
@@ -174,42 +180,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn read_booleans() {
-        let mut schema_registry = SchemaRegistry::new();
-        let datafile = AvroDatafile::open("test_cases/boolean.avro", &mut schema_registry).unwrap();
-        let expected = vec![AvroValue::Boolean(true), AvroValue::Boolean(false)];
-
-        let actual: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn read_strings() {
-        let mut schema_registry = SchemaRegistry::new();
-        let datafile = AvroDatafile::open("test_cases/string.avro", &mut schema_registry).unwrap();
-        let expected = vec![
-            AvroValue::String("foo".to_string()),
-            AvroValue::String("bar".to_string()),
-            AvroValue::String("".to_string()),
-            AvroValue::String("\u{263A}".to_string()),
+    fn reads_datafiles() {
+        let examples = [
+            ("test_cases/null.avro", vec![AvroValue::Null, AvroValue::Null]),
+            (
+                "test_cases/boolean.avro",
+                vec![AvroValue::Boolean(true), AvroValue::Boolean(false)],
+            ),
+            (
+                "test_cases/int.avro",
+                vec![
+                    AvroValue::Int(42),
+                    AvroValue::Int(-100),
+                    AvroValue::Int(0),
+                    AvroValue::Int(2147483647),
+                    AvroValue::Int(-2147483648),
+                ],
+            ),
+            (
+                "test_cases/long.avro",
+                vec![
+                    AvroValue::Long(42),
+                    AvroValue::Long(-100),
+                    AvroValue::Long(0),
+                    AvroValue::Long(-9223372036854775808),
+                    AvroValue::Long(9223372036854775807),
+                ],
+            ),
+            (
+                "test_cases/string.avro",
+                vec![
+                    AvroValue::String("foo".to_string()),
+                    AvroValue::String("bar".to_string()),
+                    AvroValue::String("".to_string()),
+                    AvroValue::String("\u{263A}".to_string()),
+                ],
+            ),
+            (
+                "test_cases/enum.avro",
+                vec![
+                    AvroValue::Enum("clubs"),
+                    AvroValue::Enum("hearts"),
+                    AvroValue::Enum("spades"),
+                ],
+            ),
         ];
 
-        let actual: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn read_enums() {
-        let mut schema_registry = SchemaRegistry::new();
-        let datafile = AvroDatafile::open("test_cases/enum.avro", &mut schema_registry).unwrap();
-        let expected = vec![
-            AvroValue::Enum("clubs"),
-            AvroValue::Enum("hearts"),
-            AvroValue::Enum("spades"),
-        ];
-
-        let actual: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
-        assert_eq!(actual, expected);
+        for (filename, expected_values) in examples.iter() {
+            let mut schema_registry = SchemaRegistry::new();
+            let datafile = AvroDatafile::open(filename, &mut schema_registry).unwrap();
+            let actual_values: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
+            assert_eq!(actual_values, *expected_values);
+        }
     }
 
     #[test]
