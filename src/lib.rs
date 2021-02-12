@@ -4,6 +4,7 @@ mod encoding;
 mod schema;
 
 use schema::{NamedType, Schema, SchemaType};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, Read};
 use std::path::Path;
@@ -17,6 +18,9 @@ enum AvroValue<'a> {
     Float(f32),
     Double(f64),
     String(String),
+    Bytes(Vec<u8>),
+    Array(Vec<AvroValue<'a>>),
+    Map(HashMap<String, AvroValue<'a>>),
     Enum(&'a str),
 }
 
@@ -101,7 +105,11 @@ impl<'a> AvroDatafile<'a> {
             SchemaType::Long => Ok(AvroValue::Long(encoding::read_long(reader)?)),
             SchemaType::Float => Ok(AvroValue::Float(encoding::read_float(reader)?)),
             SchemaType::Double => Ok(AvroValue::Double(encoding::read_double(reader)?)),
+            SchemaType::Bytes => Ok(AvroValue::Bytes(encoding::read_bytes(reader)?)),
             SchemaType::String => Ok(AvroValue::String(encoding::read_string(reader)?)),
+            SchemaType::Union(types) => Ok(Self::read_union(reader, types, schema)?),
+            SchemaType::Array(item_type) => Ok(AvroValue::Array(Self::read_array(reader, item_type, schema)?)),
+            SchemaType::Map(value_type) => Ok(AvroValue::Map(Self::read_map(reader, value_type, schema)?)),
             SchemaType::Reference(id) => {
                 let schema_type = schema.resolve_named_type(*id);
 
@@ -110,8 +118,63 @@ impl<'a> AvroDatafile<'a> {
                     _ => Err(Error::BadEncoding),
                 }
             }
-            _ => Err(Error::BadEncoding),
         }
+    }
+
+    fn read_union<R: Read>(
+        reader: &mut R,
+        possible_types: &'a [SchemaType],
+        schema: &'a Schema,
+    ) -> Result<AvroValue<'a>, Error> {
+        let index = encoding::read_long(reader)?;
+
+        if index >= 0 && (index as usize) < possible_types.len() {
+            Self::read_value(reader, &possible_types[index as usize], schema)
+        } else {
+            Err(Error::InvalidFormat)
+        }
+    }
+
+    fn read_array<R: Read>(
+        reader: &mut R,
+        item_type: &'a SchemaType,
+        schema: &'a Schema,
+    ) -> Result<Vec<AvroValue<'a>>, Error> {
+        let mut num_values = encoding::read_long(reader)?;
+        let mut values = Vec::with_capacity(num_values as usize);
+
+        while num_values != 0 {
+            for _ in 0..num_values {
+                values.push(Self::read_value(reader, item_type, schema)?);
+            }
+
+            num_values = encoding::read_long(reader)?;
+        }
+
+        Ok(values)
+    }
+
+    fn read_map<R: Read>(
+        reader: &mut R,
+        value_type: &'a SchemaType,
+        schema: &'a Schema,
+    ) -> Result<HashMap<String, AvroValue<'a>>, Error> {
+        // TODO: handle negative num values
+        let mut num_values = encoding::read_long(reader)?;
+        let mut entries: HashMap<String, AvroValue<'a>> = HashMap::with_capacity(num_values as usize);
+
+        while num_values > 0 {
+            for _ in 0..num_values {
+                let key = encoding::read_string(reader)?;
+                let value = Self::read_value(reader, value_type, schema)?;
+
+                entries.insert(key, value);
+            }
+
+            num_values = encoding::read_long(reader)?;
+        }
+
+        Ok(entries)
     }
 
     fn read_enum_value<R: Read>(reader: &mut R, values: &'a [String]) -> Result<&'a str, Error> {
@@ -238,6 +301,18 @@ mod tests {
                 ],
             ),
             (
+                "test_cases/bytes.avro",
+                vec![AvroValue::Bytes(vec![1, 2, 3]), AvroValue::Bytes(vec![0xff, 0x01])],
+            ),
+            ("test_cases/union.avro", vec![AvroValue::Null, AvroValue::Boolean(true)]),
+            (
+                "test_cases/array.avro",
+                vec![
+                    AvroValue::Array(vec![AvroValue::Int(1), AvroValue::Int(2), AvroValue::Int(3)]),
+                    AvroValue::Array(vec![AvroValue::Int(-10), AvroValue::Int(-20)]),
+                ],
+            ),
+            (
                 "test_cases/enum.avro",
                 vec![
                     AvroValue::Enum("clubs"),
@@ -253,6 +328,25 @@ mod tests {
             let actual_values: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
             assert_eq!(actual_values, *expected_values);
         }
+    }
+
+    #[test]
+    fn read_maps_from_file() {
+        // There isn't an easy way to define hashmap literals in the
+        // previous test, so pulling this out as a separate test.
+        let mut first = HashMap::new();
+        first.insert("foo".to_string(), AvroValue::Int(1));
+        first.insert("bar".to_string(), AvroValue::Int(2));
+
+        let mut second = HashMap::new();
+        second.insert("hi".to_string(), AvroValue::Int(-1));
+
+        let expected_values = vec![AvroValue::Map(first), AvroValue::Map(second)];
+
+        let mut schema_registry = SchemaRegistry::new();
+        let datafile = AvroDatafile::open("test_cases/map.avro", &mut schema_registry).unwrap();
+        let actual_values: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
+        assert_eq!(actual_values, expected_values);
     }
 
     #[test]

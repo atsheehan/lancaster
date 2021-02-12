@@ -55,6 +55,13 @@ fn read_byte<R: Read>(reader: &mut R) -> Result<u8, Error> {
     Ok(buffer[0])
 }
 
+pub(crate) fn read_bytes<R: Read>(reader: &mut R) -> Result<Vec<u8>, Error> {
+    let byte_length = read_long(reader)? as usize;
+    let mut buffer = vec![0; byte_length];
+    reader.read_exact(&mut buffer)?;
+    Ok(buffer)
+}
+
 pub(crate) fn read_string<R: Read>(reader: &mut R) -> Result<String, Error> {
     let byte_length = read_long(reader)? as usize;
     let mut buffer = vec![0; byte_length];
@@ -203,6 +210,20 @@ mod tests {
         assert_eq!(read_bool(&mut reader), Ok(true));
         assert_eq!(read_bool(&mut reader), Ok(false));
         assert_eq!(read_bool(&mut reader), Err(Error::IO(ErrorKind::UnexpectedEof)));
+    }
+
+    #[test]
+    fn reads_bytes() {
+        let input = vec![
+            0x02, 0x03, // byte length == 1, followed by one byte
+            0x04, 0x05, 0x07, // byte length == 2, followed by two bytes
+            0x06, // byte length == 3, missing bytes should return EOF
+        ];
+        let mut reader = input.as_slice();
+
+        assert_eq!(read_bytes(&mut reader), Ok(vec![0x03]));
+        assert_eq!(read_bytes(&mut reader), Ok(vec![0x05, 0x07]));
+        assert_eq!(read_bytes(&mut reader), Err(Error::IO(ErrorKind::UnexpectedEof)));
     }
 
     #[test]
