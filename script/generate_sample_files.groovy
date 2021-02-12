@@ -34,6 +34,7 @@ def writeAvroFile(dir, filename, schema, data) {
 writeAvroFile(dir, "boolean.avro", parseSchema('"boolean"'), [true, false])
 writeAvroFile(dir, "int.avro", parseSchema('"int"'), [42, -100, 0, 2147483647, -2147483648])
 writeAvroFile(dir, "long.avro", parseSchema('"long"'), [42, -100, 0, -9223372036854775808, 9223372036854775807])
+writeAvroFile(dir, "float.avro", parseSchema('"float"'), [3.1415927, 0.0, 3.40282347E+38, -3.40282347E+38])
 writeAvroFile(dir, "string.avro", parseSchema('"string"'), ["foo", "bar", "", "\u263A"])
 writeAvroFile(dir, "null.avro", parseSchema('"null"'), [null, null])
 

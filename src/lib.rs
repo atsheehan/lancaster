@@ -14,6 +14,7 @@ enum AvroValue<'a> {
     Boolean(bool),
     Int(i32),
     Long(i64),
+    Float(f32),
     String(String),
     Enum(&'a str),
 }
@@ -97,6 +98,7 @@ impl<'a> AvroDatafile<'a> {
             SchemaType::Boolean => Ok(AvroValue::Boolean(encoding::read_bool(reader)?)),
             SchemaType::Int => Ok(AvroValue::Int(encoding::read_long(reader)? as i32)),
             SchemaType::Long => Ok(AvroValue::Long(encoding::read_long(reader)?)),
+            SchemaType::Float => Ok(AvroValue::Float(encoding::read_float(reader)?)),
             SchemaType::String => Ok(AvroValue::String(encoding::read_string(reader)?)),
             SchemaType::Reference(id) => {
                 let schema_type = schema.resolve_named_type(*id);
@@ -205,6 +207,15 @@ mod tests {
                     AvroValue::Long(0),
                     AvroValue::Long(-9223372036854775808),
                     AvroValue::Long(9223372036854775807),
+                ],
+            ),
+            (
+                "test_cases/float.avro",
+                vec![
+                    AvroValue::Float(std::f32::consts::PI),
+                    AvroValue::Float(0.0),
+                    AvroValue::Float(3.402_823_5E38),
+                    AvroValue::Float(-3.402_823_5E38),
                 ],
             ),
             (
