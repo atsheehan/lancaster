@@ -20,26 +20,33 @@ The initial focus will be reading an Avro container file using the writer's sche
 
 *** Deserializing types
 
-- [ ] null
+- [X] null
 - [X] boolean
-- [ ] int
-- [ ] long
-- [ ] float
-- [ ] double
-- [ ] bytes
+- [X] int
+- [X] long
+- [X] float
+- [X] double
+- [X] bytes
 - [X] string
-- [ ] arrays
-- [ ] maps
-- [ ] fixed
+- [X] arrays
+- [X] maps
+- [X] fixed
 - [X] enum
-- [ ] record
-- [ ] union
+- [X] record
+- [X] union
 
 *** Reading an Avro container file
 
 - [X] Reading header and metadata
 - [X] Reading data blocks
 - [ ] Deflate codec
+
+** Remaining Functionality
+
+- [ ] Reader's schema
+- [ ] Encoding/decoding datums instead of datafiles
+- [ ] Parsing canonical form for schemas
+- [ ] Serializing datafiles
 
 * Development
 
