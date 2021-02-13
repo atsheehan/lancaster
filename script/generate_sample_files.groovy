@@ -44,6 +44,21 @@ writeAvroFile(dir, "array.avro", parseSchema('{"type":"array", "items":"int"}'),
 writeAvroFile(dir, "map.avro", parseSchema('{"type":"map", "values":"int"}'), [["foo": 1, "bar": 2], ["hi": -1]])
 writeAvroFile(dir, "union.avro", parseSchema('["null", "boolean"]'), [null, true])
 
+def fixedSchema = parseSchema("""
+{
+  "type": "fixed",
+  "name": "blob",
+  "size": 4
+}
+""")
+
+def fixedValues = [
+    new GenericData.Fixed(fixedSchema, [1, 2, 3, 4] as byte[]),
+    new GenericData.Fixed(fixedSchema, [5, 6, 7, 8] as byte[]),
+]
+
+writeAvroFile(dir, "fixed.avro", fixedSchema, fixedValues)
+
 def enumSchema = parseSchema("""
 {
   "type": "enum",

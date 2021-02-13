@@ -69,6 +69,12 @@ pub(crate) fn read_string<R: Read>(reader: &mut R) -> Result<String, Error> {
     String::from_utf8(buffer).map_err(|_| Error::BadEncoding)
 }
 
+pub(crate) fn read_fixed<R: Read>(reader: &mut R, length: usize) -> Result<Vec<u8>, Error> {
+    let mut buffer = vec![0; length];
+    reader.read_exact(&mut buffer)?;
+    Ok(buffer)
+}
+
 pub(crate) fn read_metadata<R: Read>(reader: &mut R) -> Result<HashMap<String, String>, Error> {
     let mut metadata: HashMap<String, String> = HashMap::new();
     let mut num_values = read_block_count(reader)?;

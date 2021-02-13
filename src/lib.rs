@@ -22,6 +22,7 @@ enum AvroValue<'a> {
     Array(Vec<AvroValue<'a>>),
     Map(HashMap<String, AvroValue<'a>>),
     Enum(&'a str),
+    Fixed(Vec<u8>),
 }
 
 #[derive(PartialEq, Debug)]
@@ -115,6 +116,7 @@ impl<'a> AvroDatafile<'a> {
 
                 match schema_type {
                     NamedType::Enum(values) => Ok(AvroValue::Enum(Self::read_enum_value(reader, &values)?)),
+                    NamedType::Fixed(size) => Ok(AvroValue::Fixed(encoding::read_fixed(reader, *size)?)),
                     _ => Err(Error::BadEncoding),
                 }
             }
@@ -319,6 +321,10 @@ mod tests {
                     AvroValue::Enum("hearts"),
                     AvroValue::Enum("spades"),
                 ],
+            ),
+            (
+                "test_cases/fixed.avro",
+                vec![AvroValue::Fixed(vec![1, 2, 3, 4]), AvroValue::Fixed(vec![5, 6, 7, 8])],
             ),
         ];
 
