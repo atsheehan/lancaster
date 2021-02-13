@@ -3,7 +3,7 @@
 mod encoding;
 mod schema;
 
-use schema::{NamedType, Schema, SchemaType};
+use schema::{Field, NamedType, Schema, SchemaType};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, Read};
@@ -23,6 +23,7 @@ enum AvroValue<'a> {
     Map(HashMap<String, AvroValue<'a>>),
     Enum(&'a str),
     Fixed(Vec<u8>),
+    Record(HashMap<&'a str, AvroValue<'a>>),
 }
 
 #[derive(PartialEq, Debug)]
@@ -117,7 +118,7 @@ impl<'a> AvroDatafile<'a> {
                 match schema_type {
                     NamedType::Enum(values) => Ok(AvroValue::Enum(Self::read_enum_value(reader, &values)?)),
                     NamedType::Fixed(size) => Ok(AvroValue::Fixed(encoding::read_fixed(reader, *size)?)),
-                    _ => Err(Error::BadEncoding),
+                    NamedType::Record(fields) => Ok(AvroValue::Record(Self::read_fields(reader, fields, schema)?)),
                 }
             }
         }
@@ -187,6 +188,21 @@ impl<'a> AvroDatafile<'a> {
         } else {
             Err(Error::BadEncoding)
         }
+    }
+
+    fn read_fields<R: Read>(
+        reader: &mut R,
+        fields: &'a [Field],
+        schema: &'a Schema,
+    ) -> Result<HashMap<&'a str, AvroValue<'a>>, Error> {
+        let mut field_values = HashMap::with_capacity(fields.len());
+
+        for field in fields {
+            let value = Self::read_value(reader, field.schema_type(), schema)?;
+            field_values.insert(field.name(), value);
+        }
+
+        Ok(field_values)
     }
 }
 
@@ -351,6 +367,24 @@ mod tests {
 
         let mut schema_registry = SchemaRegistry::new();
         let datafile = AvroDatafile::open("test_cases/map.avro", &mut schema_registry).unwrap();
+        let actual_values: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
+        assert_eq!(actual_values, expected_values);
+    }
+
+    #[test]
+    fn read_records_from_file() {
+        let mut first = HashMap::new();
+        first.insert("email", AvroValue::String("bloblaw@example.com".to_string()));
+        first.insert("age", AvroValue::Int(42));
+
+        let mut second = HashMap::new();
+        second.insert("email", AvroValue::String("gmbluth@example.com".to_string()));
+        second.insert("age", AvroValue::Int(16));
+
+        let expected_values = vec![AvroValue::Record(first), AvroValue::Record(second)];
+
+        let mut schema_registry = SchemaRegistry::new();
+        let datafile = AvroDatafile::open("test_cases/record.avro", &mut schema_registry).unwrap();
         let actual_values: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
         assert_eq!(actual_values, expected_values);
     }

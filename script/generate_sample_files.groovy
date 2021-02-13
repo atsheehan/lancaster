@@ -74,3 +74,24 @@ def enumValues = [
 ]
 
 writeAvroFile(dir, "enum.avro", enumSchema, enumValues)
+
+def recordSchema = parseSchema("""
+{
+  "name": "user",
+  "type": "record",
+  "fields": [
+    { "name": "email", "type": "string" },
+    { "name": "age", "type": "int" }
+  ]
+}
+""")
+
+def firstRecord = new GenericData.Record(recordSchema)
+firstRecord.put("email", "bloblaw@example.com")
+firstRecord.put("age", 42)
+
+def secondRecord = new GenericData.Record(recordSchema)
+secondRecord.put("email", "gmbluth@example.com")
+secondRecord.put("age", 16)
+
+writeAvroFile(dir, "record.avro", recordSchema, [firstRecord, secondRecord])

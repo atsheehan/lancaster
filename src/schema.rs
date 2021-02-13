@@ -60,6 +60,16 @@ pub(crate) struct Field {
     schema_type: SchemaType,
 }
 
+impl Field {
+    pub(crate) fn name(&self) -> &str {
+        self.name.as_ref()
+    }
+
+    pub(crate) fn schema_type(&self) -> &SchemaType {
+        &self.schema_type
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub(crate) enum NamedType {
     Fixed(usize),
