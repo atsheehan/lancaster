@@ -4,11 +4,87 @@ mod encoding;
 mod schema;
 
 use flate2::bufread::DeflateDecoder;
+use rutie::types::Value;
+use rutie::{
+    class, methods, AnyObject, Array, Boolean, Class, Encoding, Hash, Integer, NilClass, Object, RString, Symbol, VM,
+};
 use schema::{Field, NamedType, Schema, SchemaType};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
+
+class!(RubyDataFile);
+
+fn avro_value_to_ruby_value(value: &AvroValue) -> Value {
+    match value {
+        AvroValue::Null => NilClass::new().into(),
+        AvroValue::Boolean(value) => Boolean::new(*value).into(),
+        AvroValue::Int(value) => Integer::new((*value).into()).into(),
+        AvroValue::Long(value) => Integer::new(*value).into(),
+        AvroValue::String(value) => RString::new_utf8(value).into(),
+        AvroValue::Fixed(bytes) => RString::from_bytes(bytes, &Encoding::us_ascii()).into(),
+        AvroValue::Array(values) => {
+            let mut array = Array::with_capacity(values.len());
+
+            for value in values.iter() {
+                let value: AnyObject = avro_value_to_ruby_value(value).into();
+                array.push(value);
+            }
+
+            array.into()
+        }
+        AvroValue::Map(entries) => {
+            let mut hash = Hash::new();
+
+            for (key, value) in entries.iter() {
+                let key = RString::new_utf8(key.as_str());
+                let value: AnyObject = avro_value_to_ruby_value(value).into();
+                hash.store(key, value);
+            }
+
+            hash.into()
+        }
+        AvroValue::Enum(value) => RString::new_utf8(value).into(),
+        AvroValue::Record(fields) => {
+            let mut hash = Hash::new();
+
+            for (key, value) in fields.iter() {
+                let key = Symbol::new(key);
+                let value: AnyObject = avro_value_to_ruby_value(value).into();
+                hash.store(key, value);
+            }
+
+            hash.into()
+        }
+        _ => panic!("unsupported"),
+    }
+}
+
+methods!(
+    RubyDataFile,
+    _rtself,
+    fn pub_open(filename: RString, mode: RString) -> NilClass {
+        let path = filename.map_err(VM::raise_ex).unwrap();
+        let mut schema_registry = SchemaRegistry::new();
+        let mut data_file = AvroDatafile::open(path.to_str(), &mut schema_registry).unwrap();
+
+        for value in data_file {
+            let value = value.unwrap();
+            VM::yield_object(AnyObject::from(avro_value_to_ruby_value(&value)));
+        }
+
+        NilClass::new()
+    }
+);
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "C" fn Init_lancaster() {
+    Class::new("DataFile", None).define(|klass| {
+        klass.def_self("open", pub_open);
+    });
+}
 
 #[derive(PartialEq, Debug)]
 enum AvroValue<'a> {
