@@ -3,6 +3,7 @@ import groovy.json.JsonOutput
 import org.apache.avro.Schema
 import org.apache.avro.generic.GenericDatumWriter
 import org.apache.avro.generic.GenericData
+import org.apache.avro.file.CodecFactory
 import org.apache.avro.file.DataFileWriter
 import java.nio.ByteBuffer;
 
@@ -18,10 +19,15 @@ def parseSchema(jsonSchema) {
 }
 
 def writeAvroFile(dir, filename, schema, data) {
+    writeAvroFileWithCodec(dir, filename, schema, data, CodecFactory.nullCodec())
+}
+
+def writeAvroFileWithCodec(dir, filename, schema, data, codec) {
     new File(dir, filename).withOutputStream { stream ->
         def datumWriter = new GenericDatumWriter(schema)
         def dataFileWriter = new DataFileWriter(datumWriter)
         def syncMarker = "abcdefghijklmnop".getBytes()
+        dataFileWriter.setCodec(codec)
         dataFileWriter.create(schema, stream, syncMarker)
 
         data.each {
@@ -95,3 +101,11 @@ secondRecord.put("email", "gmbluth@example.com")
 secondRecord.put("age", 16)
 
 writeAvroFile(dir, "record.avro", recordSchema, [firstRecord, secondRecord])
+
+writeAvroFileWithCodec(
+    dir,
+    "string_deflate.avro",
+    parseSchema('"string"'),
+    ["foo", "bar", "foo"],
+    CodecFactory.deflateCodec(5)
+)

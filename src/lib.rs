@@ -3,10 +3,11 @@
 mod encoding;
 mod schema;
 
+use flate2::bufread::DeflateDecoder;
 use schema::{Field, NamedType, Schema, SchemaType};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
 #[derive(PartialEq, Debug)]
@@ -31,6 +32,7 @@ enum Error {
     IO(io::ErrorKind),
     InvalidFormat,
     BadEncoding,
+    UnsupportedCodec,
 }
 
 impl From<io::Error> for Error {
@@ -60,11 +62,17 @@ impl SchemaRegistry {
 type SyncMarker = [u8; 16];
 
 #[derive(Debug)]
+enum Codec {
+    Null,
+    Deflate,
+}
+
+#[derive(Debug)]
 struct AvroDatafile<'a> {
     schema: &'a Schema,
     sync_marker: SyncMarker,
-    reader: BufReader<File>,
-    position: ReaderPosition,
+    position: Option<ReaderPosition<BufReader<File>>>,
+    codec: Codec,
 }
 
 impl<'a> AvroDatafile<'a> {
@@ -84,14 +92,23 @@ impl<'a> AvroDatafile<'a> {
         let schema = Schema::parse(&schema_str).map_err(|_| Error::InvalidFormat)?;
         let schema = schema_registry.register(schema);
 
+        let codec = match metadata.get("avro.codec") {
+            Some(codec) => match codec.as_ref() {
+                "deflate" => Codec::Deflate,
+                "null" => Codec::Null,
+                _ => return Err(Error::UnsupportedCodec),
+            },
+            None => Codec::Null,
+        };
+
         let mut sync_marker: SyncMarker = [0; 16];
         reader.read_exact(&mut sync_marker)?;
 
         Ok(Self {
             schema,
             sync_marker,
-            reader,
-            position: ReaderPosition::StartOfDataBlock,
+            position: Some(ReaderPosition::StartOfDataBlock { reader }),
+            codec,
         })
     }
 
@@ -207,44 +224,89 @@ impl<'a> AvroDatafile<'a> {
 }
 
 #[derive(Debug)]
-enum ReaderPosition {
-    StartOfDataBlock,
-    InDataBlock { remaining_object_count: u64 },
+enum ReaderPosition<R> {
+    StartOfDataBlock {
+        reader: R,
+    },
+    InDataBlock {
+        remaining_object_count: u64,
+        reader: DataBlockReader<R>,
+    },
+}
+
+#[derive(Debug)]
+enum DataBlockReader<R> {
+    Deflate(DeflateDecoder<io::Take<R>>),
+    NoCodec(io::Take<R>),
+}
+
+impl<R> DataBlockReader<R> {
+    fn inner(self) -> R {
+        match self {
+            Self::Deflate(decoder) => decoder.into_inner().into_inner(),
+            Self::NoCodec(reader) => reader.into_inner(),
+        }
+    }
+}
+
+impl<R: BufRead> Read for DataBlockReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Deflate(decoder) => decoder.read(buf),
+            Self::NoCodec(reader) => reader.read(buf),
+        }
+    }
 }
 
 impl<'a> Iterator for AvroDatafile<'a> {
     type Item = Result<AvroValue<'a>, Error>;
 
     fn next(&mut self) -> Option<Result<AvroValue<'a>, Error>> {
-        match self.position {
-            ReaderPosition::StartOfDataBlock => {
-                let objects_in_block = match encoding::read_long(&mut self.reader) {
+        // We use an Option for position so we can take ownership of
+        // the reader using `take`. This is necessary when we're
+        // starting or finishing a datablock and we need to convert
+        // the reader to the appropriate codec.
+        match self.position.take() {
+            Some(ReaderPosition::StartOfDataBlock { mut reader }) => {
+                let objects_in_block = match encoding::read_long(&mut reader) {
                     Ok(object_count) => object_count as u64,
                     Err(Error::IO(io::ErrorKind::UnexpectedEof)) => return None,
                     Err(e) => return Some(Err(e)),
                 };
 
-                let _byte_length = match encoding::read_long(&mut self.reader) {
+                let byte_length = match encoding::read_long(&mut reader) {
                     Ok(byte_length) => byte_length,
                     Err(e) => return Some(Err(e)),
                 };
 
-                self.position = ReaderPosition::InDataBlock {
-                    remaining_object_count: objects_in_block,
+                let data_block_reader = match self.codec {
+                    Codec::Null => DataBlockReader::NoCodec(reader.take(byte_length as u64)),
+                    Codec::Deflate => DataBlockReader::Deflate(DeflateDecoder::new(reader.take(byte_length as u64))),
                 };
+
+                self.position = Some(ReaderPosition::InDataBlock {
+                    remaining_object_count: objects_in_block,
+                    reader: data_block_reader,
+                });
 
                 self.next()
             }
-            ReaderPosition::InDataBlock { remaining_object_count } => {
+            Some(ReaderPosition::InDataBlock {
+                remaining_object_count,
+                mut reader,
+            }) => {
                 if remaining_object_count > 0 {
-                    let value = Self::read_value(&mut self.reader, self.schema.root(), self.schema);
-                    self.position = ReaderPosition::InDataBlock {
+                    let value = Self::read_value(&mut reader, self.schema.root(), self.schema);
+                    self.position = Some(ReaderPosition::InDataBlock {
                         remaining_object_count: remaining_object_count - 1,
-                    };
+                        reader,
+                    });
                     Some(value)
                 } else {
+                    let mut reader = reader.inner();
+
                     let mut sync_marker: SyncMarker = [0; 16];
-                    if let Err(e) = self.reader.read_exact(&mut sync_marker) {
+                    if let Err(e) = reader.read_exact(&mut sync_marker) {
                         return Some(Err(Error::IO(e.kind())));
                     }
 
@@ -252,10 +314,12 @@ impl<'a> Iterator for AvroDatafile<'a> {
                         return Some(Err(Error::BadEncoding));
                     }
 
-                    self.position = ReaderPosition::StartOfDataBlock;
+                    self.position = Some(ReaderPosition::StartOfDataBlock { reader });
                     self.next()
                 }
             }
+            // TODO throw an error, shouldn't get here
+            None => None,
         }
     }
 }
@@ -402,5 +466,19 @@ mod tests {
             assert!(result.is_err());
             assert_eq!(result.unwrap_err(), *expected_err);
         }
+    }
+
+    #[test]
+    fn deserialize_files_with_deflate_codec() {
+        let expected_values = vec![
+            AvroValue::String("foo".to_string()),
+            AvroValue::String("bar".to_string()),
+            AvroValue::String("foo".to_string()),
+        ];
+
+        let mut schema_registry = SchemaRegistry::new();
+        let datafile = AvroDatafile::open("test_cases/string_deflate.avro", &mut schema_registry).unwrap();
+        let actual_values: Vec<AvroValue> = datafile.collect::<Result<_, Error>>().unwrap();
+        assert_eq!(actual_values, expected_values);
     }
 }

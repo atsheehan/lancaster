@@ -10,3 +10,6 @@ edition = "2018"
 
 # Parsing Avro schemas from JSON
 serde_json = "1.0"
+
+# Deflate codec
+flate2 = "1.0"

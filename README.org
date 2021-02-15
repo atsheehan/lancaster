@@ -39,7 +39,7 @@ The initial focus will be reading an Avro container file using the writer's sche
 
 - [X] Reading header and metadata
 - [X] Reading data blocks
-- [ ] Deflate codec
+- [X] Deflate codec
 
 ** Remaining Functionality
 
